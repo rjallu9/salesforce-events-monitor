@@ -17,17 +17,19 @@ export function activate(context: vscode.ExtensionContext) {
 				{ enableScripts: true, retainContextWhenHidden: true }
 			);
 			const scriptPath = vscode.Uri.file(
-				path.join(context.extensionPath, 'out', 'assets/index.js')
+				path.join(context.extensionPath, 'src', 'assets/index.js')
 			);
 			const scriptUri = panel.webview.asWebviewUri(scriptPath);
 			const cssPath = vscode.Uri.file(
-				path.join(context.extensionPath, 'out', 'assets/index.css')
+				path.join(context.extensionPath, 'src', 'assets/index.css')
 			);
 			const cssUri = panel.webview.asWebviewUri(cssPath);
 
 			panel.webview.html = getWebviewContent(context.extensionPath, scriptUri, cssUri);
 
 			let orgsList: any[] = [];
+			let subscribeList = new Map();
+
 
 			tmpDirectory = context.globalStorageUri.fsPath+"/tmp";
 
@@ -42,14 +44,33 @@ export function activate(context: vscode.ExtensionContext) {
 							getAuthOrgs().then((result:any) => {
 								orgsList = result;	
 								panel.webview.postMessage({command: 'orgsList', orgs: result});	
-								const dir = path.dirname(context.globalStorageUri.fsPath);
+								const dir = path.dirname(orgsListPath);
 								if (!fs.existsSync(dir)) {
 									fs.mkdirSync(dir, { recursive: true });
 								}	
-								fs.writeFile(context.globalStorageUri.fsPath+"/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err:any) => {
+								fs.writeFile(orgsListPath, JSON.stringify(orgsList, null, 2), 'utf8', (err:any) => {
 								}); 			
 							});	
 						}				
+						break;
+					case 'getEvents':			
+						var org = orgsList.find((org:any) => org.orgId === message.orgId);	
+						validateSession(org.accessToken, org.instanceUrl, message.orgId)
+						.then((result:any) => {
+							if(result.valid) {
+								if(result.orgsList) {
+									orgsList = result.orgsList;
+									org = orgsList.find((org:any) => org.orgId === message.orgId);	
+									fs.writeFile(context.globalStorageUri.fsPath+"/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err:any) => {}); 
+								}
+								getEvents(org.accessToken, org.instanceUrl, message.type)
+									.then((data:any) => {
+										panel.webview.postMessage({ command: 'events', components: data});						
+								});	
+							}
+						}).catch((error) => {
+							panel.webview.postMessage({ command: 'error', message:'Unable to connect to the Org.' });
+						});				
 						break;
 					case 'subscribe':			
 						var org = orgsList.find((org:any) => org.orgId === message.orgId);	
@@ -57,9 +78,14 @@ export function activate(context: vscode.ExtensionContext) {
 							instanceUrl : org.instanceUrl,
 							accessToken : org.accessToken
 						});
-						conn.streaming.topic("/event/Data_Sync__e").subscribe((message:any) => {
-							panel.webview.postMessage({ command: 'message', message: message, name:'Data_Sync__e'});				
-						});			
+						let subscribe = conn.streaming.topic(message.event).subscribe((msg:any) => {
+							panel.webview.postMessage({ command: 'message', message: msg, name:message.event});	
+						});		
+						subscribeList.set(message.event, subscribe);		
+						break;
+					case 'unsubscribe':			
+						var subscription = subscribeList.get(message.event);		
+						subscription.unsubscribe();	
 						break;
 					default:
 					console.log('Unknown command:', message.command);
@@ -78,6 +104,34 @@ export function activate(context: vscode.ExtensionContext) {
 	});
 
 	context.subscriptions.push(disposable);
+}
+
+function getEvents(accessToken:string, endPoint:string, type:string) {
+    return new Promise((resolve, reject) => {
+		let events = new Map();
+		let query = "";
+		let prefix = "";
+		if(type === 'platformEvents') {
+			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			prefix = '/event/';
+		} else if(type === 'cdcEvents') {
+			query = '<urn:queryAll><urn:queryString> SELECT Label, QualifiedApiName FROM EntityDefinition WHERE PublisherId = \'CDC\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			prefix = '/data/';
+		}
+		sendSoapAPIRequest(accessToken, endPoint, query)
+		.then((result:any) => {
+			const records = result['queryAllResponse']['result']['records'];	
+			let tmp = records instanceof Array ? records : [records];
+			let pfs:any = [];
+			tmp.forEach((evt:any) => {
+				pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix+evt['sf:QualifiedApiName']});
+			});	
+			resolve(pfs);
+        })
+        .catch((error:any) => {
+            reject(error);			
+        });
+    });
 }
 
 function validateSession(accessToken:string, endPoint:string, orgId:string) {
@@ -110,35 +164,6 @@ function validateSession(accessToken:string, endPoint:string, orgId:string) {
 			}
         });;
     });
-}
-
-function sendSoapMDRequest(accessToken:string,  endPoint:string, body:string) {
-	const parser = new xml2js.Parser({ explicitArray: false, ignoreAttrs: true });	
-	let reuest =  '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:met="http://soap.sforce.com/2006/04/metadata">'+
-		'<soapenv:Header><met:SessionHeader><met:sessionId>'+accessToken+'</met:sessionId></met:SessionHeader></soapenv:Header>'+
-		'<soapenv:Body>'+body+'</soapenv:Body></soapenv:Envelope>';
-	
-	return new Promise((resolve, reject) => {
-		axios.post(endPoint+"/services/Soap/m/62.0", reuest, { headers: {
-					'Content-Type': 'text/xml; charset=utf-8',
-					'SOAPAction': 'Update',
-				},
-			}
-		).then((response:any) => {
-			parser.parseString(response.data, (err:any, result:any) => {
-				if (err) {
-					vscode.window.showErrorMessage("Error parsing SOAP XML:", err);
-					return;
-				}		
-				resolve(result['soapenv:Envelope']['soapenv:Body']);
-			});
-		})
-		.catch((error:any) => {
-			parser.parseString(error.response.data, (err:any, result:any) => {	
-				reject(result['soapenv:Envelope']['soapenv:Body']['soapenv:Fault']['faultstring']);
-			});		
-		});
-	});
 }
 
 function sendSoapAPIRequest(accessToken:string,  endPoint:string, body:string) {
@@ -203,14 +228,6 @@ function getAuthOrgs() {
     });
 }
 
-function refreshOrgs() {
-    return new Promise((resolve, reject) => {
-        const orgsDir = path.join(process.env.HOME || process.env.USERPROFILE || '', '.sfdx');    
-		const alias = JSON.parse(fs.readFileSync(orgsDir+'/alias.json', 'utf-8'));
-		console.log(alias.orgs);
-    });
-}
-
 function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode.Uri) {
 
 	return `<!doctype html>
@@ -252,17 +269,38 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 								</svg>
 							</p>
 						</div>
-						<div>
-							<button type="button" style="width: 75px;float:right;" id="subscribe">Subscribe</button>
+						<div id="eventTypesDD" style="margin-left:15px;display:none;">	
+							<label for="text" for="eventTypes" class="top-label">Types:</label>
+							<select type="text" class="eventTypes" id="eventTypes" style="height:36px;">
+								<option value=""></option>
+								<option value="platformEvents">Platform Events</option>
+								<option value="cdcEvents">Change Data Capture</option>
+							</select>		
+						</div>
+						<div id="eventsDD" style="margin-left:15px;display:none;">
+							<div>	
+								<label for="text" for="dd-text-field" class="top-label">Events: </label>
+								<input type="text" class="dd-text-field" id="dd-text-field"></input>								
+								<span style="margin-left: -19px;color: #888;">
+									<svg width="15" height="15" viewBox="0 0 24 12" fill="#cccccc;" xmlns="http://www.w3.org/2000/svg" style="color: #cccccc;">
+										<path d="M6 9l6 6 6-6" stroke="#cccccc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+									</svg>
+								</span>
+							</div>
+							<div class="dd-option-box">
+								<div class="dd-options">
+									<ui style="list-style-type: none;">                       
+									</ui>
+								</div>
+							</div>
 						</div>
 					</div>
-					<div id="selectiontabs" style="margin-top:10px;">
+					<div id="tabs" style="margin-top:10px;">
 						<ul>
-							<li class="tab" name="eventstable"><a href="#eventstable" class="available">Available (0)</a></li>
-							<li class="tab" name="selecteddatatable"><a href="#selected" class="selected">Selected (0)</a></li>
+							<li class="tab" name="messagesList"><a href="#messagesTab" class="messages">Messages (0)</a></li>
 						</ul>
-						<div id="available">
-							<table id="eventsList" class="display" style="width:100%">
+						<div id="messagesTab">
+							<table id="messagesList" class="display" style="width:100%">
 								<thead>
 									<tr>	
 										<th>Event Name</th>
