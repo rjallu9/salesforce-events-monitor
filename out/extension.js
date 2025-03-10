@@ -119,6 +119,9 @@ function activate(context) {
                     var subscription = subscribeList.get(message.event);
                     subscription.unsubscribe();
                     break;
+                case 'toastMessage':
+                    vscode.window.showInformationMessage(`${message.message}`);
+                    break;
                 default:
                     console.log('Unknown command:', message.command);
             }
@@ -342,6 +345,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 									<tr>	
 										<th>Event Name</th>
 										<th>Replay Id</th>
+										<th>Created Date</th>
 										<th>Payload</th>										
 									</tr>
 								</thead>

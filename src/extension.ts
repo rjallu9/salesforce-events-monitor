@@ -325,6 +325,7 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 									<tr>	
 										<th>Event Name</th>
 										<th>Replay Id</th>
+										<th>Created Date</th>
 										<th>Payload</th>										
 									</tr>
 								</thead>

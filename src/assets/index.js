@@ -41,7 +41,8 @@ $(document).ready(function () {
         } else if(event.data.command === 'message') {
             messages.push({
                 name: event.data.name,
-                payload: JSON.stringify(event.data.message.sobject ? event.data.message.sobject : event.data.message.payload),
+                createdDate: event.data.message.event.createdDate ?? event.data.message.payload.LastModifiedDate ?? event.data.message.payload.CreatedDate,
+                payload: JSON.stringify(event.data.message.sobject ?? event.data.message.payload),
                 replayId: event.data.message.event.replayId
             });
             $('.messages').text('Messages ('+messages.length+')');
@@ -175,6 +176,7 @@ $(document).ready(function () {
         columns: [
             { data: 'name', width:'300px' },
             { data: 'replayId', width:'100px' },
+            { data: 'createdDate', width:'300px' },
             { data: 'payload' }
         ],
         language: {
@@ -184,9 +186,9 @@ $(document).ready(function () {
     });
 
     $('#export').on('click', function (e) {
-        let list = [['Event Name','Replay Id','Payload']];
+        let list = [['Event Name','Replay Id', 'Created Date', 'Payload']];
         messages.forEach(e => {
-            list.push([e.name, e.replayId, e.payload]);
+            list.push(['"'+e.name+'"', '"'+e.replayId+'"', '"'+e.createdDate+'"', '"'+e.payload.replaceAll('"', '')+'"']);
         });
         navigator.clipboard.writeText(list.map(e => e.join(",")).join("\n"));
         vscode.postMessage({ command: 'toastMessage', message: 'CSV content copied to clipboard'});

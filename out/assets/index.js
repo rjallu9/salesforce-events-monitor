@@ -41,7 +41,8 @@ $(document).ready(function () {
         } else if(event.data.command === 'message') {
             messages.push({
                 name: event.data.name,
-                payload: JSON.stringify(event.data.message.sobject ? event.data.message.sobject : event.data.message.payload),
+                createdDate: event.data.message.event.createdDate ?? event.data.message.payload.LastModifiedDate ?? event.data.message.payload.CreatedDate,
+                payload: JSON.stringify(event.data.message.sobject ?? event.data.message.payload),
                 replayId: event.data.message.event.replayId
             });
             $('.messages').text('Messages ('+messages.length+')');
@@ -175,12 +176,30 @@ $(document).ready(function () {
         columns: [
             { data: 'name', width:'300px' },
             { data: 'replayId', width:'100px' },
+            { data: 'createdDate', width:'300px' },
             { data: 'payload' }
         ],
         language: {
             emptyTable: 'No events captured',
             info: "Total: _TOTAL_ event(s) captured"
         }
+    });
+
+    $('#export').on('click', function (e) {
+        let list = [['Event Name','Replay Id', 'Created Date', 'Payload']];
+        messages.forEach(e => {
+            list.push([e.name, e.replayId, e.createdDate, e.payload]);
+        });
+        navigator.clipboard.writeText(list.map(e => e.join(",")).join("\n"));
+        vscode.postMessage({ command: 'toastMessage', message: 'CSV content copied to clipboard'});
+    });
+
+    $('#clear').on('click', function (e) {
+        messages = [];
+        $('.messages').text('Messages ('+messages.length+')');
+        $('#messagesList').DataTable().clear().rows.add(messages).draw();
+        $('#export').prop('disabled', true);  
+        $('#clear').prop('disabled', true);
     });
 });
 
