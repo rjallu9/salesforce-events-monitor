@@ -53,6 +53,7 @@ function activate(context) {
         panel.webview.html = getWebviewContent(context.extensionPath, scriptUri, cssUri);
         let orgsList = [];
         let subscribeList = new Map();
+        let eventsList = new Map();
         tmpDirectory = context.globalStorageUri.fsPath + "/tmp";
         panel.webview.onDidReceiveMessage((message) => {
             switch (message.command) {
@@ -77,22 +78,31 @@ function activate(context) {
                     break;
                 case 'getEvents':
                     var org = orgsList.find((org) => org.orgId === message.orgId);
-                    validateSession(org.accessToken, org.instanceUrl, message.orgId)
-                        .then((result) => {
-                        if (result.valid) {
-                            if (result.orgsList) {
-                                orgsList = result.orgsList;
-                                org = orgsList.find((org) => org.orgId === message.orgId);
-                                fs.writeFile(context.globalStorageUri.fsPath + "/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err) => { });
+                    for (const [key, value] of subscribeList) {
+                        value.unsubscribe();
+                    }
+                    subscribeList.clear();
+                    if (eventsList.has(org.orgId + message.type)) {
+                        panel.webview.postMessage({ command: 'events', components: eventsList.get(org.orgId + message.type) });
+                    }
+                    else {
+                        validateSession(org.accessToken, org.instanceUrl, message.orgId)
+                            .then((result) => {
+                            if (result.valid) {
+                                if (result.orgsList) {
+                                    orgsList = result.orgsList;
+                                    org = orgsList.find((org) => org.orgId === message.orgId);
+                                    fs.writeFile(context.globalStorageUri.fsPath + "/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err) => { });
+                                }
+                                getEvents(org.accessToken, org.instanceUrl, message.type)
+                                    .then((data) => {
+                                    panel.webview.postMessage({ command: 'events', components: data });
+                                });
                             }
-                            getEvents(org.accessToken, org.instanceUrl, message.type)
-                                .then((data) => {
-                                panel.webview.postMessage({ command: 'events', components: data });
-                            });
-                        }
-                    }).catch((error) => {
-                        panel.webview.postMessage({ command: 'error', message: 'Unable to connect to the Org.' });
-                    });
+                        }).catch((error) => {
+                            panel.webview.postMessage({ command: 'error', message: 'Unable to connect to the Org.' });
+                        });
+                    }
                     break;
                 case 'subscribe':
                     var org = orgsList.find((org) => org.orgId === message.orgId);
@@ -127,7 +137,6 @@ function activate(context) {
 }
 function getEvents(accessToken, endPoint, type) {
     return new Promise((resolve, reject) => {
-        let events = new Map();
         let query = "";
         let prefix = "";
         if (type === 'platformEvents') {
@@ -138,14 +147,25 @@ function getEvents(accessToken, endPoint, type) {
             query = '<urn:queryAll><urn:queryString> SELECT Label, QualifiedApiName FROM EntityDefinition WHERE PublisherId = \'CDC\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
             prefix = '/data/';
         }
+        else if (type === 'pushTopics') {
+            query = '<urn:queryAll><urn:queryString> SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>';
+            prefix = '/topic/';
+        }
         sendSoapAPIRequest(accessToken, endPoint, query)
             .then((result) => {
             const records = result['queryAllResponse']['result']['records'];
-            let tmp = records instanceof Array ? records : [records];
             let pfs = [];
-            tmp.forEach((evt) => {
-                pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix + evt['sf:QualifiedApiName'] });
-            });
+            if (records) {
+                let tmp = records instanceof Array ? records : [records];
+                tmp.forEach((evt) => {
+                    if (evt['sf:type'] === 'PushTopic') {
+                        pfs.push({ name: evt['sf:Name'], hidden: false, label: evt['sf:Name'], url: prefix + evt['sf:Name'] });
+                    }
+                    else {
+                        pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix + evt['sf:QualifiedApiName'] });
+                    }
+                });
+            }
             resolve(pfs);
         })
             .catch((error) => {
@@ -285,15 +305,16 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 								</svg>
 							</p>
 						</div>
-						<div id="eventTypesDD" style="margin-right:5px;display:none;">	
+						<div id="eventTypesDD" style="margin-left:15px;display:none;">	
 							<label for="text" for="eventTypes" class="top-label">Types:</label>
 							<select type="text" class="eventTypes" id="eventTypes" style="height:36px;">
 								<option value=""></option>
 								<option value="platformEvents">Platform Events</option>
-								<option value="cdcEvents">Change Data Capture</option>
+								<option value="cdcEvents">Change Data Captures</option>
+								<option value="pushTopics">Push Topics</option>
 							</select>		
 						</div>
-						<div id="eventsDD" style="margin-left:10px;display:none;">
+						<div id="eventsDD" style="margin-left:15px;display:none;">
 							<div>	
 								<label for="text" for="dd-text-field" class="top-label">Events: </label>
 								<input type="text" class="dd-text-field" id="dd-text-field"></input>								
@@ -327,6 +348,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 							</table>
 							<div>
 								<button type="button" style="width: 75px;" id="export" disabled>Export</button>
+								<button type="button" style="width: 75px;" id="clear" disabled>Clear</button>
 							</div>
 						</div>
 					</div>

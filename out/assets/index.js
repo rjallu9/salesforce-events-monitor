@@ -41,11 +41,13 @@ $(document).ready(function () {
         } else if(event.data.command === 'message') {
             messages.push({
                 name: event.data.name,
-                payload: JSON.stringify(event.data.message.payload),
+                payload: JSON.stringify(event.data.message.sobject ? event.data.message.sobject : event.data.message.payload),
                 replayId: event.data.message.event.replayId
             });
             $('.messages').text('Messages ('+messages.length+')');
-            $('#messagesList').DataTable().clear().rows.add(messages).draw();      
+            $('#messagesList').DataTable().clear().rows.add(messages).draw();   
+            $('#export').prop('disabled',false);  
+            $('#clear').prop('disabled',false);
         } 
     });
 
@@ -65,18 +67,31 @@ $(document).ready(function () {
 
     $('#org-field').on("change", function(e){      
         if($(this).val() !== '') {
-            vscode.postMessage({ command: 'getEvents', orgId: $(this).val()});
+            $('#eventTypes').val('');
+            reset();
             $("#eventTypesDD").show();   
         }       
     });
 
     $('#eventTypes').on("change", function(e){      
         if($(this).val() !== '') {
-            vscode.postMessage({ command: 'getEvents', orgId: $(this).val(), type: $(this).val()});            
+            reset();
+            vscode.postMessage({ command: 'getEvents', orgId: $('#org-field').val(), type: $(this).val()});            
             $("#spinner").show();   
             $(".spinnerlabel").text("Refreshing Events");
         }       
     });
+
+    function reset() {
+        events = [];
+        selectedEvents = new Set();
+        messages = [];
+        refreshEvents();
+        $('.messages').text('Messages ('+messages.length+')');
+        $('#messagesList').DataTable().clear().rows.add(messages).draw();
+        $('#export').prop('disabled',true);  
+        $('#clear').prop('disabled',true);
+    }
 
     function refreshEvents() {
         $('.dd-options ui').empty();

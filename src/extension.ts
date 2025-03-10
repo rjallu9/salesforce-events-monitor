@@ -29,7 +29,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 			let orgsList: any[] = [];
 			let subscribeList = new Map();
-
+			let eventsList = new Map();
 
 			tmpDirectory = context.globalStorageUri.fsPath+"/tmp";
 
@@ -54,23 +54,31 @@ export function activate(context: vscode.ExtensionContext) {
 						}				
 						break;
 					case 'getEvents':			
-						var org = orgsList.find((org:any) => org.orgId === message.orgId);	
-						validateSession(org.accessToken, org.instanceUrl, message.orgId)
-						.then((result:any) => {
-							if(result.valid) {
-								if(result.orgsList) {
-									orgsList = result.orgsList;
-									org = orgsList.find((org:any) => org.orgId === message.orgId);	
-									fs.writeFile(context.globalStorageUri.fsPath+"/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err:any) => {}); 
+						var org = orgsList.find((org:any) => org.orgId === message.orgId);
+						for (const [key, value] of subscribeList) {
+							value.unsubscribe();
+						}
+						subscribeList.clear();
+						if(eventsList.has(org.orgId+message.type)) {
+							panel.webview.postMessage({ command: 'events', components: eventsList.get(org.orgId+message.type)});
+						} else {
+							validateSession(org.accessToken, org.instanceUrl, message.orgId)
+							.then((result:any) => {
+								if(result.valid) {
+									if(result.orgsList) {
+										orgsList = result.orgsList;
+										org = orgsList.find((org:any) => org.orgId === message.orgId);	
+										fs.writeFile(context.globalStorageUri.fsPath+"/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err:any) => {}); 
+									}
+									getEvents(org.accessToken, org.instanceUrl, message.type)
+										.then((data:any) => {
+											panel.webview.postMessage({ command: 'events', components: data});						
+									});	
 								}
-								getEvents(org.accessToken, org.instanceUrl, message.type)
-									.then((data:any) => {
-										panel.webview.postMessage({ command: 'events', components: data});						
-								});	
-							}
-						}).catch((error) => {
-							panel.webview.postMessage({ command: 'error', message:'Unable to connect to the Org.' });
-						});				
+							}).catch((error) => {
+								panel.webview.postMessage({ command: 'error', message:'Unable to connect to the Org.' });
+							});		
+						}		
 						break;
 					case 'subscribe':			
 						var org = orgsList.find((org:any) => org.orgId === message.orgId);	
@@ -87,6 +95,9 @@ export function activate(context: vscode.ExtensionContext) {
 						var subscription = subscribeList.get(message.event);		
 						subscription.unsubscribe();	
 						break;
+					case 'toastMessage':
+						vscode.window.showInformationMessage(`${message.message}`);	
+						break;		
 					default:
 					console.log('Unknown command:', message.command);
 				}
@@ -108,7 +119,6 @@ export function activate(context: vscode.ExtensionContext) {
 
 function getEvents(accessToken:string, endPoint:string, type:string) {
     return new Promise((resolve, reject) => {
-		let events = new Map();
 		let query = "";
 		let prefix = "";
 		if(type === 'platformEvents') {
@@ -117,15 +127,24 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 		} else if(type === 'cdcEvents') {
 			query = '<urn:queryAll><urn:queryString> SELECT Label, QualifiedApiName FROM EntityDefinition WHERE PublisherId = \'CDC\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/data/';
+		} else if(type === 'pushTopics') {
+			query = '<urn:queryAll><urn:queryString> SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>';
+			prefix = '/topic/';
 		}
 		sendSoapAPIRequest(accessToken, endPoint, query)
 		.then((result:any) => {
 			const records = result['queryAllResponse']['result']['records'];	
-			let tmp = records instanceof Array ? records : [records];
-			let pfs:any = [];
-			tmp.forEach((evt:any) => {
-				pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix+evt['sf:QualifiedApiName']});
-			});	
+			let pfs:any = [];				
+			if(records) {
+				let tmp = records instanceof Array ? records : [records];
+				tmp.forEach((evt:any) => {
+					if(evt['sf:type'] === 'PushTopic') {
+						pfs.push({ name: evt['sf:Name'], hidden: false, label: evt['sf:Name'], url: prefix+evt['sf:Name']});
+					} else {
+						pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix+evt['sf:QualifiedApiName']});
+					}				
+				});	
+			}
 			resolve(pfs);
         })
         .catch((error:any) => {
@@ -274,7 +293,8 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 							<select type="text" class="eventTypes" id="eventTypes" style="height:36px;">
 								<option value=""></option>
 								<option value="platformEvents">Platform Events</option>
-								<option value="cdcEvents">Change Data Capture</option>
+								<option value="cdcEvents">Change Data Captures</option>
+								<option value="pushTopics">Push Topics</option>
 							</select>		
 						</div>
 						<div id="eventsDD" style="margin-left:15px;display:none;">
@@ -311,6 +331,7 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 							</table>
 							<div>
 								<button type="button" style="width: 75px;" id="export" disabled>Export</button>
+								<button type="button" style="width: 75px;" id="clear" disabled>Clear</button>
 							</div>
 						</div>
 					</div>
