@@ -17,11 +17,11 @@ export function activate(context: vscode.ExtensionContext) {
 				{ enableScripts: true, retainContextWhenHidden: true }
 			);
 			const scriptPath = vscode.Uri.file(
-				path.join(context.extensionPath, 'src', 'assets/index.js')
+				path.join(context.extensionPath, 'out', 'assets/index.js')
 			);
 			const scriptUri = panel.webview.asWebviewUri(scriptPath);
 			const cssPath = vscode.Uri.file(
-				path.join(context.extensionPath, 'src', 'assets/index.css')
+				path.join(context.extensionPath, 'out', 'assets/index.css')
 			);
 			const cssUri = panel.webview.asWebviewUri(cssPath);
 
@@ -122,7 +122,7 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 		let query = "";
 		let prefix = "";
 		if(type === 'platformEvents') {
-			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e00%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/event/';
 		} else if(type === 'cdcEvents') {
 			query = '<urn:queryAll><urn:queryString> SELECT Label, QualifiedApiName FROM EntityDefinition WHERE PublisherId = \'CDC\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
