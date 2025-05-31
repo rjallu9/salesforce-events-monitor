@@ -1,11 +1,11 @@
 {
   "name": "salesforce-events-monitor",
   "displayName": "Salesforce Events Monitor",
-  "description": "This extension is to streamline the deployment process between salesforce orgs (scratch orgs, sandboxes, and DE orgs).",
+  "description": "This extension allows developers subscribe to Platform Events, CDC, and Push Topics and watch real-time payloads for debugging and event-driven development.",
   "publisher": "RamuJallu",
-  "repository": "https://github.com/rjallu9/salesforce-deployment-suite",
+  "repository": "https://github.com/rjallu9/https://github.com/rjallu9/salesforce-event-monitor",
   "bugs": {
-    "url": "https://github.com/rjallu9/salesforce-deployment-suite/issues"
+    "url": "https://github.com/rjallu9/https://github.com/rjallu9/salesforce-event-monitor/issues"
   },
   "license": "BSD-3-Clause",
   "version": "1.0.0",
@@ -13,9 +13,9 @@
   "keywords": [
     "sfdx",
     "salesforce",
-    "salesforce deploy",
+    "salesforce events",
     "sf",
-    "sf deploy"
+    "sf events"
   ],
   "engines": {
     "vscode": "^1.95.0"

@@ -267,7 +267,7 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 				<div style="margin: 20px;">
 					<div style="display:flex;justify-content: space-between;align-items: center;">	
 						<h1>Salesforce Events Monitor</h1>		
-						<a href="https://github.com/rjallu9/salesforce-deployment-suite/issues" title="Report issue" style="height"25px;">
+						<a href="https://github.com/rjallu9/salesforce-event-monitor/issues" title="Report issue" style="height"25px;">
 							<svg width="25px" height="25px" viewBox="0 0 36 36" version="1.1"  preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
 								<circle cx="18" cy="18" r="14" fill="#0078d4"/>
 								<text x="18" y="20" font-family="Arial" font-size="20" text-anchor="middle" alignment-baseline="middle" fill="white">?</text>
