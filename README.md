@@ -24,5 +24,5 @@ A lightweight and powerful Visual Studio Code extension to **subscribe**, **moni
 * Launch the Extension using command **SFDX Events: Cature and Monitor**
 
 
-https://github.com/user-attachments/assets/246e069a-35de-4907-9a70-e43cafa534d7
+ <video src="https://github.com/user-attachments/assets/246e069a-35de-4907-9a70-e43cafa534d7" type="video/mp4"></video>
 

@@ -1,8 +1,7 @@
 # Change Log
 
-### [1.0.0] - 2025-02-23
+### [1.0.0] - 2025-05-31
 #### Initial Release
-- Metadata Management
-- Component Handling
-- Deployment Options
-- Additional Features
+- Events Monitor
+- Platform EVents, CDC and Push Topics
+- Export Payload

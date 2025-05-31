@@ -3,9 +3,9 @@
   "displayName": "Salesforce Events Monitor",
   "description": "This extension allows developers subscribe to Platform Events, CDC, and Push Topics and watch real-time payloads for debugging and event-driven development.",
   "publisher": "RamuJallu",
-  "repository": "https://github.com/rjallu9/https://github.com/rjallu9/salesforce-event-monitor",
+  "repository": "https://github.com/rjallu9/salesforce-event-monitor",
   "bugs": {
-    "url": "https://github.com/rjallu9/https://github.com/rjallu9/salesforce-event-monitor/issues"
+    "url": "https://github.com/rjallu9/salesforce-event-monitor/issues"
   },
   "license": "BSD-3-Clause",
   "version": "1.0.0",
