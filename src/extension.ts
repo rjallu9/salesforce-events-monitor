@@ -122,7 +122,7 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 		let query = "";
 		let prefix = "";
 		if(type === 'platformEvents') {
-			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e00%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/event/';
 		} else if(type === 'cdcEvents') {
 			query = '<urn:queryAll><urn:queryString> SELECT Label, QualifiedApiName FROM EntityDefinition WHERE PublisherId = \'CDC\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
