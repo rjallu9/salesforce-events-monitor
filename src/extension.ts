@@ -55,15 +55,12 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'getEvents':			
 						var org = orgsList.find((org:any) => org.orgId === message.orgId);
-						for (const [key, value] of subscribeList) {
-							value.unsubscribe();
-						}
-						subscribeList.clear();
 						if(eventsList.has(org.orgId+message.type)) {
 							panel.webview.postMessage({ command: 'events', components: eventsList.get(org.orgId+message.type)});
 						} else {
 							validateSession(org.accessToken, org.instanceUrl, message.orgId)
-							.then((result:any) => {
+							.then((result:
+								any) => {
 								if(result.valid) {
 									if(result.orgsList) {
 										orgsList = result.orgsList;
@@ -88,16 +85,25 @@ export function activate(context: vscode.ExtensionContext) {
 						});
 						let subscribe = conn.streaming.topic(message.event).subscribe((msg:any) => {
 							panel.webview.postMessage({ command: 'message', message: msg, name:message.event});	
-						});		
+						});	
+						vscode.window.showInformationMessage(`Successfully Subscribed to ${message.event}`);	
 						subscribeList.set(message.event, subscribe);		
 						break;
 					case 'unsubscribe':			
 						var subscription = subscribeList.get(message.event);		
 						subscription.unsubscribe();	
+						subscribeList.delete(message.event);
+						vscode.window.showInformationMessage(`Successfully Unsubscribed to ${message.event}`);	
 						break;
 					case 'toastMessage':
 						vscode.window.showInformationMessage(`${message.message}`);	
-						break;		
+						break;	
+					case 'unsubscribeAll':						
+						for (const [key, value] of subscribeList) {
+							value.unsubscribe();
+						}
+						subscribeList.clear();
+						break;	
 					default:
 					console.log('Unknown command:', message.command);
 				}
@@ -124,11 +130,14 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 		if(type === 'platformEvents') {
 			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/event/';
+		} else if(type === 'standardplatformEvents') {
+			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			prefix = '/event/';
 		} else if(type === 'cdcEvents') {
-			query = '<urn:queryAll><urn:queryString> SELECT Label, QualifiedApiName FROM EntityDefinition WHERE PublisherId = \'CDC\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%ChangeEvent\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/data/';
 		} else if(type === 'pushTopics') {
-			query = '<urn:queryAll><urn:queryString> SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>';
+			query = '<urn:queryAll><urn:queryString>SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>';
 			prefix = '/topic/';
 		}
 		sendSoapAPIRequest(accessToken, endPoint, query)
@@ -288,38 +297,43 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 								</svg>
 							</p>
 						</div>
-						<div id="eventTypesDD" style="margin-left:15px;display:none;">	
-							<label for="text" for="eventTypes" class="top-label">Types:</label>
-							<select type="text" class="eventTypes" id="eventTypes" style="height:36px;">
-								<option value=""></option>
-								<option value="platformEvents">Platform Events</option>
-								<option value="cdcEvents">Change Data Captures</option>
-								<option value="pushTopics">Push Topics</option>
-							</select>		
-						</div>
-						<div id="eventsDD" style="margin-left:15px;display:none;">
-							<div>	
-								<label for="text" for="dd-text-field" class="top-label">Events: </label>
-								<input type="text" class="dd-text-field" id="dd-text-field"></input>								
-								<span style="margin-left: -19px;color: #888;">
-									<svg width="15" height="15" viewBox="0 0 24 12" fill="#cccccc;" xmlns="http://www.w3.org/2000/svg" style="color: #cccccc;">
-										<path d="M6 9l6 6 6-6" stroke="#cccccc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
-									</svg>
-								</span>
-							</div>
-							<div class="dd-option-box">
-								<div class="dd-options">
-									<ui style="list-style-type: none;">                       
-									</ui>
-								</div>
-							</div>
-						</div>
 					</div>
 					<div id="tabs" style="margin-top:10px;">
 						<ul>
-							<li class="tab" name="messagesList"><a href="#messagesTab" class="messages">Messages (0)</a></li>
+							<li class="tab" name="messagesList"><a href="#messagesTab">Subscribe</a></li>
+							<li class="tab" name="publishList"><a href="#publishTab">Publish</a></li>
 						</ul>
-						<div id="messagesTab">
+						<div id="messagesTab">		
+							<div style="display:flex;">				
+								<div id="eventTypesDD">	
+									<label for="text" for="eventTypes" class="top-label">Types:</label>
+									<select type="text" class="eventTypes" id="eventTypes" style="height:36px;">
+										<option value=""></option>
+										<option value="platformEvents">Platform Events (Custom)</option>
+										<option value="standardplatformEvents">Platform Events (Standard)</option>
+										<option value="cdcEvents">Change Data Captures</option>
+										<option value="pushTopics">Push Topics</option>
+									</select>		
+								</div>
+								<div id="eventsDD" style="margin-left:15px;display:none;">
+									<div>	
+										<label for="text" for="dd-text-field" class="top-label">Events: </label>
+										<input type="text" class="dd-text-field" id="dd-text-field"></input>								
+										<span style="margin-left: -19px;color: #888;">
+											<svg width="15" height="15" viewBox="0 0 24 12" fill="#cccccc;" xmlns="http://www.w3.org/2000/svg" style="color: #cccccc;">
+												<path d="M6 9l6 6 6-6" stroke="#cccccc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+											</svg>
+										</span>
+									</div>
+									<div class="dd-option-box">
+										<div class="dd-options">
+											<ui style="list-style-type: none;">                       
+											</ui>
+										</div>
+									</div>
+								</div>
+								<button type="button" style="height:36px; margin:22px 0 0 15px;display:none;" id="subEvents">All Subscribed Events</button>
+							</div>
 							<table id="messagesList" class="display" style="width:100%">
 								<thead>
 									<tr>	
@@ -334,6 +348,16 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 								<button type="button" style="width: 75px;" id="export" disabled>Export</button>
 								<button type="button" style="width: 75px;" id="clear" disabled>Clear</button>
 							</div>
+						</div>
+						<div id="publishTab">
+							<table id="publishList" class="display" style="width:100%">
+								<thead>
+									<tr>	
+										<th>Event Name</th>
+										<th>Payload</th>										
+									</tr>
+								</thead>
+							</table>
 						</div>
 					</div>
 				</div>

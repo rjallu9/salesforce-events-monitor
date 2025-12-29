@@ -15,6 +15,8 @@ $(document).ready(function () {
     let events = [];  
     let messages = [];  
     let selectedEvents = new Set();
+    let selectedEventsAll = new Set();
+
 
     window.addEventListener('message', (event) => {
         if(event.data.command === 'orgsList') {
@@ -34,9 +36,6 @@ $(document).ready(function () {
             });; 
             $('#eventsDD').show();
             refreshEvents();
-            $('#tabs').show();
-            $('.messages').text('Messages (0)');
-            $('#messagesList').DataTable().clear().draw();
             $("#spinner").hide();    
         } else if(event.data.command === 'message') {
             messages.push({
@@ -66,49 +65,59 @@ $(document).ready(function () {
         $(".spinnerlabel").text("Refreshing Orgs");
     });
 
-    $('#org-field').on("change", function(e){      
+    $('#org-field').on("change", function(e){   
+        vscode.postMessage({ command: 'unsubscribeAll'});   
         if($(this).val() !== '') {
-            $('#eventTypes').val('');
-            reset();
-            $("#eventTypesDD").show();   
-        }       
+            $('#eventTypes').val('');         
+            $('#tabs').show();  
+            $('#eventsDD').hide();
+            $('#subEvents').hide();
+            selectedEventsAll.clear(); 
+            messages = []; 
+            $('#messagesList').DataTable().clear().rows.add(messages).draw();
+            $('#export').prop('disabled',true);  
+            $('#clear').prop('disabled',true);
+        } else {
+            $('#tabs').hide();
+        }     
     });
 
-    $('#eventTypes').on("change", function(e){      
+    $('#eventTypes').on("change", function(e){ 
+        events = [];
+        refreshEvents();   
+        $('#eventsDD').hide(); 
         if($(this).val() !== '') {
-            reset();
             vscode.postMessage({ command: 'getEvents', orgId: $('#org-field').val(), type: $(this).val()});            
             $("#spinner").show();   
             $(".spinnerlabel").text("Refreshing Events");
-        }       
+        }     
     });
 
-    function reset() {
-        events = [];
-        selectedEvents = new Set();
-        messages = [];
-        refreshEvents();
-        $('.messages').text('Messages ('+messages.length+')');
-        $('#messagesList').DataTable().clear().rows.add(messages).draw();
-        $('#export').prop('disabled',true);  
-        $('#clear').prop('disabled',true);
-    }
-
     function refreshEvents() {
+        selectedEvents.clear();
         $('.dd-options ui').empty();
-        var visibleTypesCount = 0;
         events.forEach(function(evt) {
             if(!evt.hidden) {
-                visibleTypesCount++;
-                $('.dd-options ui').append(`
-                    <li class="dd-option ${(selectedEvents.has(evt.name)) ? 'select-row' : ''}">
-                        <div class=${(selectedEvents.has(evt.name)) ? 'select-row' : ''}>
-                            <input type="checkbox" value=${evt.url} id=${evt.name} class="dd-option-chk" 
-                                    ${selectedEvents.has(evt.name)? "checked" : ""}>
-                            <label class="dd-option-lbl" for=${evt.name}>${evt.label}</label>
-                        </div>
-                    </li>
-                `);
+                if(selectedEventsAll.has(evt.url)) {
+                    selectedEvents.add(evt.url, evt);                    
+                    $('.dd-options ui').append(`
+                        <li class="dd-option select-row">
+                            <div class='select-row'>
+                                <input type="checkbox" value=${evt.url} id=${evt.name} class="dd-option-chk" checked>
+                                <label class="dd-option-lbl" for=${evt.name}>${evt.label}</label>
+                            </div>
+                        </li>
+                    `);
+                } else {                    
+                    $('.dd-options ui').append(`
+                        <li class="dd-option">
+                            <div>
+                                <input type="checkbox" value=${evt.url} id=${evt.name} class="dd-option-chk">
+                                <label class="dd-option-lbl" for=${evt.name}>${evt.label}</label>
+                            </div>
+                        </li>
+                    `);
+                }
             }
         }); 
         $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) subscribed');    
@@ -154,15 +163,22 @@ $(document).ready(function () {
             $(this).parent().addClass('select-row');
             $(this).parent().parent().addClass('select-row');
             selectedEvents.add($(this).val());
+            selectedEventsAll.add($(this).val());
             vscode.postMessage({ command: 'subscribe', orgId: $("#org-field").val(), event:$(this).val()});         
         } else {
             $(this).parent().removeClass('select-row');
             $(this).parent().parent().removeClass('select-row');
             selectedEvents.delete($(this).val());
+            selectedEventsAll.delete($(this).val());
             vscode.postMessage({ command: 'unsubscribe', orgId: $("#org-field").val(), event:$(this).val()});   
         }        
-        $('.dd-select-all').prop('checked', selectedEvents.size === events.length);
-        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) subscribed');     
+        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) subscribed'); 
+        if(selectedEventsAll.size > 0) {  
+            $('#subEvents').show();
+            $('#subEvents').text('All Subscribed Events ('+selectedEventsAll.size+')');
+        } else {
+            $('#subEvents').hide();
+        }
     });
 
     $('#messagesList').DataTable({
@@ -174,10 +190,10 @@ $(document).ready(function () {
         fixedColumns: true,
         order: [[1, 'desc']],
         columns: [
-            { data: 'name', width:'300px' },
-            { data: 'replayId', width:'100px' },
-            { data: 'createdDate', width:'300px' },
-            { data: 'payload' }
+            { data: 'name', width:'10%' },
+            { data: 'replayId', width:'10%' },
+            { data: 'createdDate', width:'10%' },
+            { data: 'payload', width:'70%' }
         ],
         language: {
             emptyTable: 'No events captured',
