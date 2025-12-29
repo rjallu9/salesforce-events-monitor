@@ -13,10 +13,11 @@ $(document).ready(function () {
 
     let orgs = [];  
     let events = [];  
-    let messages = [];  
+    let publishEvents = [];  
+    let messages = [];   
     let selectedEvents = new Set();
     let selectedEventsAll = new Set();
-
+    let publishedMessages = [];  
 
     window.addEventListener('message', (event) => {
         if(event.data.command === 'orgsList') {
@@ -31,12 +32,25 @@ $(document).ready(function () {
             $("#errors").text(event.data.message);   
             $("#spinner").hide();
         } else if(event.data.command === 'events') {
-            event.data.components.forEach(function(evt) {
-                events.push(evt);
-            });; 
-            $('#eventsDD').show();
-            refreshEvents();
-            $("#spinner").hide();    
+            if(event.data.source === 'publish') {
+                event.data.components.forEach(function(evt) {
+                    publishEvents.push(evt);
+                });
+                $('#publishEventsDD').show();
+                $.each(publishEvents, function(index, option) {
+                    $('<option/>', {
+                        value: option.name,
+                        text: option.label
+                    }).appendTo($('#publishEvents'));
+                });
+            } else {
+                event.data.components.forEach(function(evt) {
+                    events.push(evt);
+                });
+                $('#eventsDD').show();
+                refreshEvents(); 
+            }              
+            $("#spinner").hide(); 
         } else if(event.data.command === 'message') {
             messages.push({
                 name: event.data.name,
@@ -44,10 +58,16 @@ $(document).ready(function () {
                 payload: JSON.stringify(event.data.message.sobject ?? event.data.message.payload),
                 replayId: event.data.message.event.replayId
             });
-            $('.messages').text('Messages ('+messages.length+')');
             $('#messagesList').DataTable().clear().rows.add(messages).draw();   
             $('#export').prop('disabled',false);  
             $('#clear').prop('disabled',false);
+        } else if(event.data.command === 'publishedmessage') {
+            publishedMessages.push({
+                name: event.data.name,
+                payload: event.data.payload,
+                eventId: event.data.eventId
+            });
+            $('#publishList').DataTable().clear().rows.add(publishedMessages).draw(); 
         } 
     });
 
@@ -68,15 +88,19 @@ $(document).ready(function () {
     $('#org-field').on("change", function(e){   
         vscode.postMessage({ command: 'unsubscribeAll'});   
         if($(this).val() !== '') {
-            $('#eventTypes').val('');         
+            $('#eventTypes').val(''); 
+            $('#publishEventTypes').val('');         
             $('#tabs').show();  
             $('#eventsDD').hide();
+            $('#publishEventsDD').hide();
             $('#subEvents').hide();
             selectedEventsAll.clear(); 
             messages = []; 
             $('#messagesList').DataTable().clear().rows.add(messages).draw();
             $('#export').prop('disabled',true);  
             $('#clear').prop('disabled',true);
+            publishedMessages = [];
+            $('#publishList').DataTable().clear().rows.add(publishedMessages).draw();
         } else {
             $('#tabs').hide();
         }     
@@ -87,7 +111,7 @@ $(document).ready(function () {
         refreshEvents();   
         $('#eventsDD').hide(); 
         if($(this).val() !== '') {
-            vscode.postMessage({ command: 'getEvents', orgId: $('#org-field').val(), type: $(this).val()});            
+            vscode.postMessage({ command: 'getEvents', source:'subscribe', orgId: $('#org-field').val(), type: $(this).val()});            
             $("#spinner").show();   
             $(".spinnerlabel").text("Refreshing Events");
         }     
@@ -216,6 +240,52 @@ $(document).ready(function () {
         $('#messagesList').DataTable().clear().rows.add(messages).draw();
         $('#export').prop('disabled', true);  
         $('#clear').prop('disabled', true);
+    });
+
+    $('#publishList').DataTable({
+        paging: true,
+        pageLength: 100,
+        lengthChange: false,
+        scrollY: '400px',
+        scrollCollapse: true, 
+        fixedColumns: true,
+        order: [[1, 'desc']],
+        columns: [
+            { data: 'name', width:'20%' },
+            { data: 'payload', width:'70%' },
+            { data: 'eventId', width:'10%' },
+        ],
+        language: {
+            emptyTable: 'No events published',
+            info: "Total: _TOTAL_ event(s) published"
+        }
+    });
+
+    $('#publishEventTypes').on("change", function(e){ 
+        publishEvents = [];
+        $('#publishEventsDD').hide(); 
+        if($(this).val() !== '') {
+            vscode.postMessage({ command: 'getEvents', source:'publish', orgId: $('#org-field').val(), type: $(this).val()});            
+            $("#spinner").show();   
+            $(".spinnerlabel").text("Refreshing Events");
+        }     
+    });
+
+    $('#publishEvents').on("change", function(e){ 
+        $('#publishPayload').hide(); 
+        if($(this).val() !== '') {
+            $('#payload').val('');
+            $('#publishBtn').prop('disabled', true);
+            $('#publishPayload').show(); 
+        }     
+    });
+
+    $("#payload").on("input", function(e){
+        $('#publishBtn').prop('disabled', $(this).val() === '');
+    });
+
+    $('#publishBtn').on('click', function (e) {
+        vscode.postMessage({ command: 'publish', orgId: $('#org-field').val(), type: $('#publishEvents').val(), payload: $('#payload').val()});    
     });
 });
 

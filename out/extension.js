@@ -79,7 +79,7 @@ function activate(context) {
                 case 'getEvents':
                     var org = orgsList.find((org) => org.orgId === message.orgId);
                     if (eventsList.has(org.orgId + message.type)) {
-                        panel.webview.postMessage({ command: 'events', components: eventsList.get(org.orgId + message.type) });
+                        panel.webview.postMessage({ command: 'events', source: message.source, components: eventsList.get(org.orgId + message.type) });
                     }
                     else {
                         validateSession(org.accessToken, org.instanceUrl, message.orgId)
@@ -92,7 +92,7 @@ function activate(context) {
                                 }
                                 getEvents(org.accessToken, org.instanceUrl, message.type)
                                     .then((data) => {
-                                    panel.webview.postMessage({ command: 'events', components: data });
+                                    panel.webview.postMessage({ command: 'events', source: message.source, components: data });
                                 });
                             }
                         }).catch((error) => {
@@ -117,6 +117,29 @@ function activate(context) {
                     subscription.unsubscribe();
                     subscribeList.delete(message.event);
                     vscode.window.showInformationMessage(`Successfully Unsubscribed to ${message.event}`);
+                    break;
+                case 'publish':
+                    var org = orgsList.find((org) => org.orgId === message.orgId);
+                    const con = new jsforce.Connection({
+                        instanceUrl: org.instanceUrl,
+                        accessToken: org.accessToken
+                    });
+                    try {
+                        con.sobject(message.type).create(JSON.parse(message.payload))
+                            .then((result) => {
+                            if (result.success) {
+                                vscode.window.showInformationMessage(`Event published successfully. Event ID: ${result.id}`);
+                                panel.webview.postMessage({ command: 'publishedmessage',
+                                    payload: message.payload, name: message.type, eventId: result.id });
+                            }
+                            else {
+                                vscode.window.showErrorMessage(`Unable to publish event : ${result}`);
+                            }
+                        });
+                    }
+                    catch (err) {
+                        vscode.window.showErrorMessage(`Invalid JSON Payload. ${err}`);
+                    }
                     break;
                 case 'toastMessage':
                     vscode.window.showInformationMessage(`${message.message}`);
@@ -370,11 +393,31 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 							</div>
 						</div>
 						<div id="publishTab">
+							<div style="display:flex;">				
+								<div id="publishEventTypesDD">	
+									<label for="text" for="publishEventTypes" class="top-label">Types:</label>
+									<select type="text" class="eventTypes" id="publishEventTypes" style="height:36px;">
+										<option value=""></option>
+										<option value="platformEvents">Platform Events (Custom)</option>
+									</select>		
+								</div>
+								<div id="publishEventsDD" style="margin-left:15px;display:none;">
+									<label for="text" for="publishEvents" class="top-label">Events:</label>
+									<select type="text" class="eventTypes" id="publishEvents" style="height:36px;">
+										<option value=""></option>
+									</select>	
+								</div>
+							</div>
+							<div style="text-align:right;display:none;" id="publishPayload">
+								<textarea id="payload" style="width:100%;height:150px;margin-top:10px;font-size:14px;" placeholder="Enter payload in JSON format"></textarea>
+								<button type="button" style="width: 100px;margin-top:10px;" id="publishBtn">Publish</button>
+							</div>
 							<table id="publishList" class="display" style="width:100%">
 								<thead>
 									<tr>	
-										<th>Event Name</th>
-										<th>Payload</th>										
+										<th>Name</th>
+										<th>Payload</th>
+										<th>Event Id</th>										
 									</tr>
 								</thead>
 							</table>
