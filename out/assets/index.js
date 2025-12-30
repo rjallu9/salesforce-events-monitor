@@ -10,6 +10,7 @@ $(document).ready(function () {
 
     $("#tabs").tabs();
     $("#tabs").hide();
+    $('#event-lists-dialog').dialog({autoOpen: false, modal: true, closeOnEscape: true, width: 750, height:550});
 
     let orgs = [];  
     let events = [];  
@@ -205,6 +206,62 @@ $(document).ready(function () {
         }
     });
 
+    $('#eventList').DataTable({
+        paging: true,
+        pageLength: 10,
+        lengthChange: false,
+        scrollY: '400px',
+        scrollCollapse: true, 
+        fixedColumns: true,
+        order: [[1, 'desc']],
+        columns: [
+            { data: 'name'},
+            { data: 'action'}
+        ],
+        autoWidth: false,
+        columnDefs: [
+            { "width": "70%", "targets": 0 },
+            { "width": "30%", "targets": 1 }
+        ]
+    });
+
+    $("#subEvents").on("click", function(e){
+        var tmp = [];
+        selectedEventsAll.forEach(evt => {
+            tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
+        }); 
+        $('#event-lists-dialog').dialog("open");        
+        $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
+    });  
+
+    $("#eventList").on('click', 'a.unsubscribe', function (e) {
+        let filename = e.currentTarget.dataset.event;
+        selectedEventsAll.delete(filename);
+        selectedEvents.delete(filename);
+        vscode.postMessage({ command: 'unsubscribe', orgId: $("#org-field").val(), event:filename});   
+        var tmp = [];
+        selectedEventsAll.forEach(evt => {
+            tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
+        });       
+        $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
+
+        $('.dd-text-field')
+        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) subscribed'); 
+        $('.dd-option-chk').each(function() {
+            if($(this).val() === filename) {
+                $(this).prop('checked', false);
+                $(this).parent().removeClass('select-row');
+                $(this).parent().parent().removeClass('select-row');
+            }
+        });
+        if(selectedEventsAll.size > 0) {  
+            $('#subEvents').show();
+            $('#subEvents').text('All Subscribed Events ('+selectedEventsAll.size+')');
+        } else {
+            $('#subEvents').hide();
+        }
+    });
+
     $('#messagesList').DataTable({
         paging: true,
         pageLength: 100,
@@ -214,15 +271,22 @@ $(document).ready(function () {
         fixedColumns: true,
         order: [[1, 'desc']],
         columns: [
-            { data: 'name', width:'10%' },
-            { data: 'replayId', width:'10%' },
-            { data: 'createdDate', width:'10%' },
-            { data: 'payload', width:'70%' }
+            { data: 'name'},
+            { data: 'replayId'},
+            { data: 'createdDate'},
+            { data: 'payload'}
         ],
         language: {
             emptyTable: 'No events captured',
             info: "Total: _TOTAL_ event(s) captured"
-        }
+        },        
+        autoWidth: false,
+        columnDefs: [
+            { "width": "10%", "targets": 0 },
+            { "width": "10%", "targets": 1 },
+            { "width": "10%", "targets": 2 },
+            { "width": "70%", "targets": 3 }
+        ]
     });
 
     $('#export').on('click', function (e) {
@@ -251,14 +315,20 @@ $(document).ready(function () {
         fixedColumns: true,
         order: [[1, 'desc']],
         columns: [
-            { data: 'name', width:'20%' },
-            { data: 'payload', width:'70%' },
-            { data: 'eventId', width:'10%' },
+            { data: 'name'},
+            { data: 'payload'},
+            { data: 'eventId'},
         ],
         language: {
             emptyTable: 'No events published',
             info: "Total: _TOTAL_ event(s) published"
-        }
+        },        
+        autoWidth: false,
+        columnDefs: [
+            { "width": "20%", "targets": 0 },
+            { "width": "70%", "targets": 1 },
+            { "width": "10%", "targets": 2 }
+        ]
     });
 
     $('#publishEventTypes').on("change", function(e){ 

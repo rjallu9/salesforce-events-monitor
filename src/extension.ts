@@ -408,6 +408,16 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 						<p style="margin-left: 5px;" class="spinnerlabel">Initializing</p>
 					</div>
 				</div>
+				<div id="event-lists-dialog" title="Subscribed Events">
+					<table id="eventList" class="display" style="width:100%">
+						<thead>
+							<tr>	
+								<th>Event Name</th>
+								<th>Action</th>									
+							</tr>
+						</thead>
+					</table>
+				</div>
 			</body>
 			<script src=${scriptUri}></script>
 			<link rel="stylesheet" href=${cssUri}>

@@ -415,7 +415,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 							<table id="publishList" class="display" style="width:100%">
 								<thead>
 									<tr>	
-										<th>Name</th>
+										<th>Event Name</th>
 										<th>Payload</th>
 										<th>Event Id</th>										
 									</tr>
@@ -429,6 +429,16 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 						<span class="spinner-circle"></span>
 						<p style="margin-left: 5px;" class="spinnerlabel">Initializing</p>
 					</div>
+				</div>
+				<div id="event-lists-dialog" title="Subscribed Events">
+					<table id="eventList" class="display" style="width:100%">
+						<thead>
+							<tr>	
+								<th>Event Name</th>
+								<th>Action</th>									
+							</tr>
+						</thead>
+					</table>
 				</div>
 			</body>
 			<script src=${scriptUri}></script>
