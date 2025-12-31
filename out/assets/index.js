@@ -11,13 +11,14 @@ $(document).ready(function () {
     $("#tabs").tabs();
     $("#tabs").hide();
     $('#event-lists-dialog').dialog({autoOpen: false, modal: true, closeOnEscape: true, width: 750, height:550});
+    $('#payload-dialog').dialog({autoOpen: false, modal: true, closeOnEscape: true, width: 750, height:550});
 
     let orgs = [];  
     let events = [];  
     let publishEvents = [];  
     let messages = [];   
     let selectedEvents = new Set();
-    let selectedEventsAll = new Set();
+    let subscribedEvents = new Set();
     let publishedMessages = [];  
 
     window.addEventListener('message', (event) => {
@@ -37,7 +38,7 @@ $(document).ready(function () {
                 event.data.components.forEach(function(evt) {
                     publishEvents.push(evt);
                 });
-                $('#publishEventsDD').show();
+                $('#publishEventsDD').attr('disabled', false);
                 $.each(publishEvents, function(index, option) {
                     $('<option/>', {
                         value: option.name,
@@ -48,8 +49,8 @@ $(document).ready(function () {
                 event.data.components.forEach(function(evt) {
                     events.push(evt);
                 });
-                $('#eventsDD').show();
-                refreshEvents(); 
+                $('#eventsDD').attr('disabled', false);
+                refreshEventsView(); 
             }              
             $("#spinner").hide(); 
         } else if(event.data.command === 'message') {
@@ -69,6 +70,24 @@ $(document).ready(function () {
                 eventId: event.data.eventId
             });
             $('#publishList').DataTable().clear().rows.add(publishedMessages).draw(); 
+        } else if(event.data.command === 'subscribed') {
+            subscribedEvents.add(event.data.name); 
+            selectedEvents.delete(event.data.name); 
+            $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
+            $('#replayOptions').prop('disabled', selectedEvents.size === 0);
+            $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
+
+            $('#viewSubEventsBtn').attr('disabled', subscribedEvents.size === 0);
+            $('#viewSubEventsBtn').text('All Subscribed Events ('+subscribedEvents.size+')');
+            $('.dd-option-chk').each(function() {
+                if($(this).val() === event.data.name) {
+                    $(this).attr('disabled', true);
+                    $(this).parent().removeClass('select-row');
+                    $(this).parent().addClass('sub-row');
+                    $(this).parent().parent().removeClass('select-row');
+                    $(this).parent().parent().addClass('sub-row');
+                }
+            });
         } 
     });
 
@@ -92,10 +111,10 @@ $(document).ready(function () {
             $('#eventTypes').val(''); 
             $('#publishEventTypes').val('');         
             $('#tabs').show();  
-            $('#eventsDD').hide();
-            $('#publishEventsDD').hide();
-            $('#subEvents').hide();
-            selectedEventsAll.clear(); 
+            $('#eventsDD').attr('disabled', true);
+            $('#publishEventsDD').attr('disabled', true);
+            $('#viewSubEventsBtn').attr('disabled', true);
+            subscribedEvents.clear(); 
             messages = []; 
             $('#messagesList').DataTable().clear().rows.add(messages).draw();
             $('#export').prop('disabled',true);  
@@ -108,9 +127,10 @@ $(document).ready(function () {
     });
 
     $('#eventTypes').on("change", function(e){ 
-        events = [];
-        refreshEvents();   
-        $('#eventsDD').hide(); 
+        events = [];        
+        selectedEvents.clear();
+        refreshEventsView();   
+        $('#eventsDD').attr('disabled', true);
         if($(this).val() !== '') {
             vscode.postMessage({ command: 'getEvents', source:'subscribe', orgId: $('#org-field').val(), type: $(this).val()});            
             $("#spinner").show();   
@@ -118,13 +138,20 @@ $(document).ready(function () {
         }     
     });
 
-    function refreshEvents() {
-        selectedEvents.clear();
+    function refreshEventsView() {
         $('.dd-options ui').empty();
         events.forEach(function(evt) {
             if(!evt.hidden) {
-                if(selectedEventsAll.has(evt.url)) {
-                    selectedEvents.add(evt.url, evt);                    
+                if(subscribedEvents.has(evt.url)) {                   
+                    $('.dd-options ui').append(`
+                        <li class="dd-option sub-row">
+                            <div class='sub-row'>
+                                <input type="checkbox" value=${evt.url} id=${evt.name} class="dd-option-chk" checked disabled>
+                                <label class="dd-option-lbl" for=${evt.name}>${evt.label}</label>
+                            </div>
+                        </li>
+                    `);
+                } else if(selectedEvents.has(evt.url)) {                   
                     $('.dd-options ui').append(`
                         <li class="dd-option select-row">
                             <div class='select-row'>
@@ -144,22 +171,27 @@ $(document).ready(function () {
                     `);
                 }
             }
-        }); 
-        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) subscribed');    
+        });   
     }
 
     $(".dd-text-field").on("click", function(e){
         e.stopPropagation();
-		$(".dd-option-box").show();
-        $(".dd-option-box").css({width: $(this).outerWidth()});
+		if ($(".dd-option-box").is(":hidden")) {            
+            $(".dd-option-box").show();
+            $(".dd-option-box").css({width: $(this).outerWidth()});
+            events.forEach(function(evt) {
+                evt.hidden = false;           
+            });
+            refreshEventsView();
+        } 
 	});
 
     $(".dd-text-field").on("input", function(e){
 		const txt = $(this).val().toLowerCase();
-        types.forEach(function(type) {
-            type.hidden = txt !== '' ? !type.name.toLowerCase().startsWith(txt) : false;           
+        events.forEach(function(evt) {
+            evt.hidden = txt !== '' ? !evt.label.toLowerCase().startsWith(txt) : false;           
         });
-        refreshTypes();
+        refreshEventsView();
     });
 
     $('.dd-option-box').on('click', function (e) {
@@ -167,11 +199,13 @@ $(document).ready(function () {
     });
 
     $("body").on("click",function(e){
+        $(".dd-text-field").val('');
         $(".dd-option-box").hide();
 	});
 
     $(document).keydown(function(e) {
         if (e.key === "Escape") {
+            $(".dd-text-field").val('');
            $(".dd-option-box").hide();
         }
     });
@@ -179,6 +213,7 @@ $(document).ready(function () {
        if($(e.target)[0]?.classList[0]?.startsWith('dd-')) {
             return;
        } else {
+            $(".dd-text-field").val('');
             $(".dd-option-box").hide();
        }
     });
@@ -187,23 +222,29 @@ $(document).ready(function () {
         if ($(this).is(':checked')) {
             $(this).parent().addClass('select-row');
             $(this).parent().parent().addClass('select-row');
-            selectedEvents.add($(this).val());
-            selectedEventsAll.add($(this).val());
-            vscode.postMessage({ command: 'subscribe', orgId: $("#org-field").val(), event:$(this).val()});         
+            selectedEvents.add($(this).val());      
         } else {
             $(this).parent().removeClass('select-row');
             $(this).parent().parent().removeClass('select-row');
-            selectedEvents.delete($(this).val());
-            selectedEventsAll.delete($(this).val());
-            vscode.postMessage({ command: 'unsubscribe', orgId: $("#org-field").val(), event:$(this).val()});   
+            selectedEvents.delete($(this).val());  
         }        
-        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) subscribed'); 
-        if(selectedEventsAll.size > 0) {  
-            $('#subEvents').show();
-            $('#subEvents').text('All Subscribed Events ('+selectedEventsAll.size+')');
-        } else {
-            $('#subEvents').hide();
-        }
+        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
+        $('#replayOptions').prop('disabled', selectedEvents.size === 0);
+        $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
+    });
+
+    $("#subscribeBtn").on("click", function(e){
+        vscode.postMessage({ command: 'subscribe', orgId: $("#org-field").val(), 
+            events:[...selectedEvents].join(), replayId:$("#replayOptions").val() === '0' ? $("#replayId").val() : $("#replayOptions").val()});
+    });
+
+    $("#viewSubEventsBtn").on("click", function(e){
+        var tmp = [];
+        subscribedEvents.forEach(evt => {
+            tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
+        }); 
+        $('#event-lists-dialog').dialog("open");        
+        $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
     });
 
     $('#eventList').DataTable({
@@ -225,28 +266,28 @@ $(document).ready(function () {
         ]
     });
 
-    $("#subEvents").on("click", function(e){
+    $("#viewSubEventsBtn").on("click", function(e){
         var tmp = [];
-        selectedEventsAll.forEach(evt => {
+        subscribedEvents.forEach(evt => {
             tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
         }); 
         $('#event-lists-dialog').dialog("open");        
         $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
-    });  
+    }); 
 
     $("#eventList").on('click', 'a.unsubscribe', function (e) {
         let filename = e.currentTarget.dataset.event;
-        selectedEventsAll.delete(filename);
+        subscribedEvents.delete(filename);
         selectedEvents.delete(filename);
         vscode.postMessage({ command: 'unsubscribe', orgId: $("#org-field").val(), event:filename});   
         var tmp = [];
-        selectedEventsAll.forEach(evt => {
+        subscribedEvents.forEach(evt => {
             tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
         });       
         $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
 
         $('.dd-text-field')
-        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) subscribed'); 
+        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
         $('.dd-option-chk').each(function() {
             if($(this).val() === filename) {
                 $(this).prop('checked', false);
@@ -254,12 +295,8 @@ $(document).ready(function () {
                 $(this).parent().parent().removeClass('select-row');
             }
         });
-        if(selectedEventsAll.size > 0) {  
-            $('#subEvents').show();
-            $('#subEvents').text('All Subscribed Events ('+selectedEventsAll.size+')');
-        } else {
-            $('#subEvents').hide();
-        }
+        $('#viewSubEventsBtn').attr('disabled', subscribedEvents.size  === 0 );
+        $('#viewSubEventsBtn').text('All Subscribed Events ('+subscribedEvents.size+')');
     });
 
     $('#messagesList').DataTable({
@@ -273,8 +310,9 @@ $(document).ready(function () {
         columns: [
             { data: 'name'},
             { data: 'replayId'},
-            { data: 'createdDate'},
-            { data: 'payload'}
+            { data: 'createdDate', "type": "date"},
+            { data: 'payload'},
+            { data: 'view'}
         ],
         language: {
             emptyTable: 'No events captured',
@@ -285,8 +323,21 @@ $(document).ready(function () {
             { "width": "10%", "targets": 0 },
             { "width": "10%", "targets": 1 },
             { "width": "10%", "targets": 2 },
-            { "width": "70%", "targets": 3 }
+            { "width": "60%", "targets": 3 },
+            {       
+                "width": "10%", 
+                "targets": 4,
+                render: function (data, type, row) {
+                    return '<a href="#" class="payloadview" style="color:#4daafc">View</a>';
+                },
+            }
         ]
+    });
+
+    $("#messagesList").on('click', 'a.payloadview', function (e) {
+        let payload = $('#messagesList').DataTable().row($(this).parent().parent()).data().payload;
+        $('#payloadview').val(JSON.stringify(JSON.parse(payload), null, 4));
+        $('#payload-dialog').dialog("open");
     });
 
     $('#export').on('click', function (e) {
@@ -316,8 +367,9 @@ $(document).ready(function () {
         order: [[1, 'desc']],
         columns: [
             { data: 'name'},
+            { data: 'eventId'},            
             { data: 'payload'},
-            { data: 'eventId'},
+            { data: 'view'}
         ],
         language: {
             emptyTable: 'No events published',
@@ -326,9 +378,22 @@ $(document).ready(function () {
         autoWidth: false,
         columnDefs: [
             { "width": "20%", "targets": 0 },
-            { "width": "70%", "targets": 1 },
-            { "width": "10%", "targets": 2 }
+            { "width": "10%", "targets": 1 },            
+            { "width": "70%", "targets": 2 },
+            {       
+                "width": "10%", 
+                "targets": 3,
+                render: function (data, type, row) {
+                    return '<a href="#" class="payloadview" style="color:#4daafc">View</a>';
+                },
+            }
         ]
+    });
+
+    $("#publishList").on('click', 'a.payloadview', function (e) {
+        let payload = $('#publishList').DataTable().row($(this).parent().parent()).data().payload;
+        $('#payloadview').val(JSON.stringify(JSON.parse(payload), null, 4));
+        $('#payload-dialog').dialog("open");
     });
 
     $('#publishEventTypes').on("change", function(e){ 
@@ -356,6 +421,12 @@ $(document).ready(function () {
 
     $('#publishBtn').on('click', function (e) {
         vscode.postMessage({ command: 'publish', orgId: $('#org-field').val(), type: $('#publishEvents').val(), payload: $('#payload').val()});    
+    });
+
+    $(".tab").on('click', function (e) {
+        if($('#'+e.currentTarget.attributes.name.value).DataTable().page() === 0) {
+            $('#'+e.currentTarget.attributes.name.value).DataTable().draw(); 
+        }        
     });
 });
 

@@ -5,6 +5,7 @@ const xml2js = require('xml2js');
 const { exec } = require('child_process');
 const fs = require('fs');
 const jsforce = require('jsforce');
+const { StreamingExtension } = require('jsforce/api/streaming');
 
 let tmpDirectory = '';
 
@@ -83,11 +84,27 @@ export function activate(context: vscode.ExtensionContext) {
 							instanceUrl : org.instanceUrl,
 							accessToken : org.accessToken
 						});
-						let subscribe = conn.streaming.topic(message.event).subscribe((msg:any) => {
-							panel.webview.postMessage({ command: 'message', message: msg, name:message.event});	
+						const authFailureExt = new StreamingExtension.AuthFailure(() => {
+							process.exit(1);
+						});
+						message.events.split(',').forEach((event:any) => {
+							const replayExt = new StreamingExtension.Replay(event, parseInt(message.replayId));							
+							let subscribe = conn.streaming.createClient([authFailureExt, replayExt]).subscribe(event, (msg:any) => {
+								panel.webview.postMessage({ command: 'message', message: msg, name:event});	
+							});
+							let intervalId = setInterval(() => {
+								if(subscribe._promise) {
+									if(subscribe._promise._state === 0) {
+										vscode.window.showInformationMessage(`Successfully Subscribed to ${event}`);	
+										panel.webview.postMessage({ command: 'subscribed', name:event});	
+										subscribeList.set(event, subscribe);
+									} else {
+										vscode.window.showErrorMessage(`Failed to Subscribed to ${event} Error: ${subscribe._promise._value.message}`);
+									}
+									clearInterval(intervalId);
+								}
+							}, 1000);	
 						});	
-						vscode.window.showInformationMessage(`Successfully Subscribed to ${message.event}`);	
-						subscribeList.set(message.event, subscribe);		
 						break;
 					case 'unsubscribe':			
 						var subscription = subscribeList.get(message.event);		
@@ -152,7 +169,7 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/event/';
 		} else if(type === 'standardplatformEvents') {
-			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE IsTriggerable=true and QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/event/';
 		} else if(type === 'cdcEvents') {
 			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%ChangeEvent\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
@@ -336,7 +353,7 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 										<option value="pushTopics">Push Topics</option>
 									</select>		
 								</div>
-								<div id="eventsDD" style="margin-left:15px;display:none;">
+								<div id="eventsDD" style="margin-left:15px;">
 									<div>	
 										<label for="text" for="dd-text-field" class="top-label">Events: </label>
 										<input type="text" class="dd-text-field" id="dd-text-field"></input>								
@@ -353,7 +370,22 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 										</div>
 									</div>
 								</div>
-								<button type="button" style="height:36px; margin:22px 0 0 15px;display:none;" id="subEvents">All Subscribed Events</button>
+								<div id="replayDD" style="display:flex;margin-left:15px;">	
+									<div>
+										<label for="text" for="replayOptions" class="top-label">Replay Options:</label>
+										<select type="text" class="replayOptions" id="replayOptions" style="height:36px;" disabled>
+											<option value="-1">New Events</option>
+											<option value="-2">Stored Events</option>
+											<option value="0">Custom Reply</option>
+										</select>
+									</div>	
+									<div id="replayIdDD" style="margin-left:15px;display:none;">
+										<label for="text" for="replayId" class="top-label">Replay Id:</label>
+										<input type="text" class="replayId" id="replayId" style="height:32px;border:1px solid rgb(118, 118, 118);"></input>	
+									</div>		
+								</div>
+								<button type="button" style="height:36px; margin:22px 0 0 15px;" id="subscribeBtn" disabled>Subscribe</button>
+								<button type="button" style="height:36px; margin:22px 0 0 15px;" id="viewSubEventsBtn" disabled>All Subscribed Events</button>
 							</div>
 							<table id="messagesList" class="display" style="width:100%">
 								<thead>
@@ -361,7 +393,8 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 										<th>Event Name</th>
 										<th>Replay Id</th>
 										<th>Created Date</th>
-										<th>Payload</th>										
+										<th>Payload</th>
+										<th>JSON(Formatted)</th>										
 									</tr>
 								</thead>
 							</table>
@@ -394,8 +427,9 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 								<thead>
 									<tr>	
 										<th>Event Name</th>
-										<th>Payload</th>
-										<th>Event Id</th>										
+										<th>Event Id</th>
+										<th>Payload</th>	
+										<th>JSON(Formatted)</th>								
 									</tr>
 								</thead>
 							</table>
@@ -417,6 +451,9 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 							</tr>
 						</thead>
 					</table>
+				</div>
+				<div id="payload-dialog" title="Payload">
+					<textarea id="payloadview" style="width:716px;height:490px;font-size:14px;" readonly></textarea>
 				</div>
 			</body>
 			<script src=${scriptUri}></script>
