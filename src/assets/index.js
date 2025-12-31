@@ -73,7 +73,7 @@ $(document).ready(function () {
         } else if(event.data.command === 'subscribed') {
             subscribedEvents.add(event.data.name); 
             selectedEvents.delete(event.data.name); 
-            $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected');             
+            $('.dd-text-field').attr("placeholder", selectedEvents.size > 0 ? selectedEvents.size + ' Event(s) Selected' : '');             
             $('#replayOptions').val('-1');
             $('#replayOptions').prop('disabled', selectedEvents.size === 0);
             $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
@@ -109,18 +109,26 @@ $(document).ready(function () {
     $('#org-field').on("change", function(e){   
         vscode.postMessage({ command: 'unsubscribeAll'});   
         if($(this).val() !== '') {
+            $('#tabs').show(); 
+
             $('#eventTypes').val(''); 
-            $('#publishEventTypes').val('');         
-            $('#tabs').show();  
-            $('#eventsDD').attr('disabled', true);
-            $('#publishEventsDD').attr('disabled', true);
+            $('.dd-text-field').attr('disabled', true);
+            $('.dd-text-field').attr("placeholder", ''); 
+            $('#replayOptions').prop('disabled', true);
+            $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
             $('#viewSubEventsBtn').attr('disabled', true);
+            $('#viewSubEventsBtn').attr('placeholder', 'All Subscribed Events (0)');
+
             subscribedEvents.clear(); 
+            selectedEvents.clear();
             messages = []; 
             $('#messagesList').DataTable().clear().rows.add(messages).draw();
             $('#export').prop('disabled',true);  
             $('#clear').prop('disabled',true);
+
             publishedMessages = [];
+            $('#publishEventTypes').val('');            
+            $('#publishEventsDD').attr('disabled', true);
             $('#publishList').DataTable().clear().rows.add(publishedMessages).draw();
         } else {
             $('#tabs').hide();
@@ -133,14 +141,21 @@ $(document).ready(function () {
         refreshEventsView();   
         $('#eventsDD').attr('disabled', true);
         if($(this).val() !== '') {
+            $('.dd-text-field').attr('disabled', false);
             vscode.postMessage({ command: 'getEvents', source:'subscribe', orgId: $('#org-field').val(), type: $(this).val()});            
             $("#spinner").show();   
             $(".spinnerlabel").text("Refreshing Events");
-        }     
+        } else {
+            $('.dd-text-field').attr('disabled', true);
+            $('.dd-text-field').attr("placeholder", ''); 
+            $('#replayOptions').prop('disabled', true);
+            $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
+        }    
     });
 
     function refreshEventsView() {
         $('.dd-options ui').empty();
+        var visibleTypesCount = 0;
         events.forEach(function(evt) {
             if(!evt.hidden) {
                 if(subscribedEvents.has(evt.url)) {                   
@@ -171,8 +186,15 @@ $(document).ready(function () {
                         </li>
                     `);
                 }
+                visibleTypesCount++;
             }
-        });   
+        });
+        if(events.length === visibleTypesCount && events.length > subscribedEvents.size) {
+            $('#select-all-div').show();
+            $('.dd-select-all').prop('checked', (selectedEvents.size+subscribedEvents.size) === events.length);
+        } else {
+            $('#select-all-div').hide();
+        }    
     }
 
     $(".dd-text-field").on("click", function(e){
@@ -232,6 +254,66 @@ $(document).ready(function () {
         $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
         $('#replayOptions').prop('disabled', selectedEvents.size === 0);
         $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
+        $('.dd-select-all').prop('checked', selectedEvents.size === events.length);
+        if(selectedEvents.size === 1) {
+            $('#customReplayId').show();
+        } else {
+            $('#customReplayId').hide();
+            if($('#replayOptions').val() === '0') {
+                $('#replayOptions').val('-1');
+                $('#replayIdDD').hide();
+            }
+        }
+    });
+
+    $(document).on('change', '.dd-select-all', function() {
+        if ($(this).is(':checked')) {
+            $('.dd-option-chk').each(function(indx, chxbox) {
+                if(!$(chxbox).prop('checked')) {
+                    $(chxbox).prop('checked', true);
+                    $(chxbox).parent().addClass('select-row');
+                    $(chxbox).parent().parent().addClass('select-row');
+                    selectedEvents.add($(chxbox).val());  
+                }                
+            });
+        } else {
+            $('.dd-option-chk').each(function(indx, chxbox) {
+                if(!subscribedEvents.has($(chxbox).val())) {
+                    $(chxbox).prop('checked', false);
+                    $(chxbox).parent().removeClass('select-row');
+                    $(chxbox).parent().parent().removeClass('select-row');
+                    selectedEvents.delete($(chxbox).val());   
+                }                              
+            });
+        }
+        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
+        $('#replayOptions').prop('disabled', selectedEvents.size === 0);
+        $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
+        if(selectedEvents.size === 1) {
+            $('#customReplayId').show();
+        } else {
+            $('#customReplayId').hide();
+            if($('#replayOptions').val() === '0') {
+                $('#replayOptions').val('-1');
+                $('#replayIdDD').hide();
+            }
+        }
+    });
+
+    $('#replayOptions').on("change", function(e){ 
+        $('#replayIdDD').hide();
+        $('#replayId').val('');
+        if($(this).val() === '0') {
+            $('#replayIdDD').show();
+            $('#subscribeBtn').prop('disabled', true);
+        } 
+    });
+
+    $('#replayId').on("input", function(e){ 
+        $('#subscribeBtn').prop('disabled', true); 
+        if($(this).val() !== '') {
+            $('#subscribeBtn').prop('disabled', false);
+        }     
     });
 
     $("#subscribeBtn").on("click", function(e){

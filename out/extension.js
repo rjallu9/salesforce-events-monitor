@@ -107,8 +107,12 @@ function activate(context) {
                         instanceUrl: org.instanceUrl,
                         accessToken: org.accessToken
                     });
-                    const authFailureExt = new StreamingExtension.AuthFailure(() => {
-                        process.exit(1);
+                    var authError = false;
+                    const authFailureExt = new StreamingExtension.AuthFailure((msg) => {
+                        if (!authError) {
+                            authError = true;
+                            vscode.window.showErrorMessage(`Failed to Subscribe. Error: ${msg.ext.sfdc.failureReason}`);
+                        }
                     });
                     message.events.split(',').forEach((event) => {
                         const replayExt = new StreamingExtension.Replay(event, parseInt(message.replayId));
@@ -387,6 +391,10 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 										</span>
 									</div>
 									<div class="dd-option-box">
+										<div style="padding:5px 10px 5px 10px;" id="select-all-div">
+											<input type="checkbox" value="All" class="dd-select-all">
+											<label for="select-all">All</label>
+										</div>
 										<div class="dd-options">
 											<ui style="list-style-type: none;">                       
 											</ui>
@@ -399,7 +407,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 										<select type="text" class="replayOptions" id="replayOptions" style="height:36px;" disabled>
 											<option value="-1">New Events</option>
 											<option value="-2">Stored Events</option>
-											<option value="0">Custom Reply</option>
+											<option value="0" id="customReplayId">Custom Replay</option>
 										</select>
 									</div>	
 									<div id="replayIdDD" style="margin-left:15px;display:none;">
