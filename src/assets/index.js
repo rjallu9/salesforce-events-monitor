@@ -117,7 +117,7 @@ $(document).ready(function () {
             $('#replayOptions').prop('disabled', true);
             $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
             $('#viewSubEventsBtn').attr('disabled', true);
-            $('#viewSubEventsBtn').attr('placeholder', 'All Subscribed Events (0)');
+            $('#viewSubEventsBtn').text('All Subscribed Events (0)');
 
             subscribedEvents.clear(); 
             selectedEvents.clear();

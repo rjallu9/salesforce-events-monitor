@@ -309,7 +309,7 @@ $(document).ready(function () {
         } 
     });
 
-    $('#replayId').on("change", function(e){ 
+    $('#replayId').on("input", function(e){ 
         $('#subscribeBtn').prop('disabled', true); 
         if($(this).val() !== '') {
             $('#subscribeBtn').prop('disabled', false);

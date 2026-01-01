@@ -420,7 +420,7 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 										<option value="platformEvents">Platform Events (Custom)</option>
 									</select>		
 								</div>
-								<div id="publishEventsDD" style="margin-left:15px;display:none;">
+								<div id="publishEventsDD" style="margin-left:15px;">
 									<label for="text" for="publishEvents" class="top-label">Events:</label>
 									<select type="text" class="eventTypes" id="publishEvents" style="height:36px;">
 										<option value=""></option>
