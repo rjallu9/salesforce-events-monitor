@@ -14,11 +14,16 @@ $(document).ready(function () {
     $('#payload-dialog').dialog({autoOpen: false, modal: true, closeOnEscape: true, width: 750, height:550});
 
     let orgs = [];  
-    let events = [];  
+    let $events = createReactive([]);
+    let $selectedEvents = createReactive(new Set());
+    let replayIdValue = createReactive('');
+    let $subscribedEvents = createReactive(new Set());
+    let $messages = createReactive([]);  
+
     let publishEvents = [];  
-    let messages = [];   
-    let selectedEvents = new Set();
-    let subscribedEvents = new Set();
+     
+    
+    
     let publishedMessages = [];  
 
     window.addEventListener('message', (event) => {
@@ -46,23 +51,20 @@ $(document).ready(function () {
                     }).appendTo($('#publishEvents'));
                 });
             } else {
+                let tmp = [];
                 event.data.components.forEach(function(evt) {
-                    events.push(evt);
+                    tmp.push(evt);
                 });
-                $('#eventsDD').attr('disabled', false);
-                refreshEventsView(); 
+                $events.set(tmp);
             }              
             $("#spinner").hide(); 
         } else if(event.data.command === 'message') {
-            messages.push({
+            $messages.add({
                 name: event.data.name,
                 createdDate: event.data.message.event.createdDate ?? event.data.message.payload.LastModifiedDate ?? event.data.message.payload.CreatedDate,
                 payload: JSON.stringify(event.data.message.sobject ?? event.data.message.payload),
                 replayId: event.data.message.event.replayId
             });
-            $('#messagesList').DataTable().clear().rows.add(messages).draw();   
-            $('#export').prop('disabled',false);  
-            $('#clear').prop('disabled',false);
         } else if(event.data.command === 'publishedmessage') {
             publishedMessages.push({
                 name: event.data.name,
@@ -71,24 +73,8 @@ $(document).ready(function () {
             });
             $('#publishList').DataTable().clear().rows.add(publishedMessages).draw(); 
         } else if(event.data.command === 'subscribed') {
-            subscribedEvents.add(event.data.name); 
-            selectedEvents.delete(event.data.name); 
-            $('.dd-text-field').attr("placeholder", selectedEvents.size > 0 ? selectedEvents.size + ' Event(s) Selected' : '');             
-            $('#replayOptions').val('-1');
-            $('#replayOptions').prop('disabled', selectedEvents.size === 0);
-            $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
-
-            $('#viewSubEventsBtn').attr('disabled', subscribedEvents.size === 0);
-            $('#viewSubEventsBtn').text('All Subscribed Events ('+subscribedEvents.size+')');
-            $('.dd-option-chk').each(function() {
-                if($(this).val() === event.data.name) {
-                    $(this).attr('disabled', true);
-                    $(this).parent().removeClass('select-row');
-                    $(this).parent().addClass('sub-row');
-                    $(this).parent().parent().removeClass('select-row');
-                    $(this).parent().parent().addClass('sub-row');
-                }
-            });
+            $subscribedEvents.add(event.data.name); 
+            $selectedEvents.delete(event.data.name);
         } 
     });
 
@@ -106,59 +92,55 @@ $(document).ready(function () {
         $(".spinnerlabel").text("Refreshing Orgs");
     });
 
+    const $orgId   = $("#org-field");
+    const orgIdValue = createReactive($orgId.val() || '');
     $('#org-field').on("change", function(e){   
-        vscode.postMessage({ command: 'unsubscribeAll'});   
-        if($(this).val() !== '') {
-            $('#tabs').show(); 
+        vscode.postMessage({ command: 'unsubscribeAll'});  
+        $subscribedEvents.set(new Set());
+        orgIdValue.set($(this).val());  
+    });
 
+    orgIdValue.subscribe(val => {
+        if(val !== '') {  
+            $('#tabs').show();             
             $('#eventTypes').val(''); 
-            $('.dd-text-field').attr('disabled', true);
-            $('.dd-text-field').attr("placeholder", ''); 
-            $('#replayOptions').prop('disabled', true);
-            $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
-            $('#viewSubEventsBtn').attr('disabled', true);
-            $('#viewSubEventsBtn').text('All Subscribed Events (0)');
+            $eventTypeValue.set('');
+            $messages.set([]);
 
-            subscribedEvents.clear(); 
-            selectedEvents.clear();
-            messages = []; 
-            $('#messagesList').DataTable().clear().rows.add(messages).draw();
-            $('#export').prop('disabled',true);  
-            $('#clear').prop('disabled',true);
-
-            publishedMessages = [];
-            $('#publishEventTypes').val('');            
-            $('#publishEventsDD').attr('disabled', true);
-            $('#publishList').DataTable().clear().rows.add(publishedMessages).draw();
+            $('#publishEventTypes').val('');   
+            publishedMessages = [];   
+            $('#publishList').DataTable().clear().rows.add(publishedMessages).draw();     
         } else {
             $('#tabs').hide();
-        }     
+        }
     });
 
+    const $eventType   = $("#eventTypes");
+    const $eventTypeValue = createReactive($eventType.val() || '');
     $('#eventTypes').on("change", function(e){ 
-        events = [];        
-        selectedEvents.clear();
-        refreshEventsView();   
-        $('#eventsDD').attr('disabled', true);
-        if($(this).val() !== '') {
-            $('.dd-text-field').attr('disabled', false);
-            vscode.postMessage({ command: 'getEvents', source:'subscribe', orgId: $('#org-field').val(), type: $(this).val()});            
-            $("#spinner").show();   
-            $(".spinnerlabel").text("Refreshing Events");
-        } else {
-            $('.dd-text-field').attr('disabled', true);
-            $('.dd-text-field').attr("placeholder", ''); 
-            $('#replayOptions').prop('disabled', true);
-            $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
-        }    
+        $eventTypeValue.set($(this).val());  
     });
 
-    function refreshEventsView() {
+    $eventTypeValue.subscribe(val => {
+        $events.set([]);
+        $selectedEvents.set(new Set());
+        $('.dd-text-field').attr("placeholder", ''); 
+        if(val !== '') {  
+            $('.dd-text-field').attr('disabled', false);
+            vscode.postMessage({ command: 'getEvents', source:'subscribe', orgId: $('#org-field').val(), type: val});            
+            $("#spinner").show();   
+            $(".spinnerlabel").text("Refreshing Events");     
+        } else {
+            $('.dd-text-field').attr('disabled', true);            
+        }
+    });
+
+    $events.subscribe(val => {
         $('.dd-options ui').empty();
         var visibleTypesCount = 0;
-        events.forEach(function(evt) {
+        val.forEach(function(evt) {
             if(!evt.hidden) {
-                if(subscribedEvents.has(evt.url)) {                   
+                if($subscribedEvents.get().has(evt.url)) {                   
                     $('.dd-options ui').append(`
                         <li class="dd-option sub-row">
                             <div class='sub-row'>
@@ -167,7 +149,7 @@ $(document).ready(function () {
                             </div>
                         </li>
                     `);
-                } else if(selectedEvents.has(evt.url)) {                   
+                } else if($selectedEvents.get().has(evt.url)) {                   
                     $('.dd-options ui').append(`
                         <li class="dd-option select-row">
                             <div class='select-row'>
@@ -189,32 +171,35 @@ $(document).ready(function () {
                 visibleTypesCount++;
             }
         });
-        if(events.length === visibleTypesCount && events.length > subscribedEvents.size) {
+        if($events.get().length === visibleTypesCount && $events.get().length > $subscribedEvents.get().size) {
             $('#select-all-div').show();
-            $('.dd-select-all').prop('checked', (selectedEvents.size+subscribedEvents.size) === events.length);
         } else {
             $('#select-all-div').hide();
-        }    
-    }
+        }
+    });
 
     $(".dd-text-field").on("click", function(e){
         e.stopPropagation();
 		if ($(".dd-option-box").is(":hidden")) {            
             $(".dd-option-box").show();
             $(".dd-option-box").css({width: $(this).outerWidth()});
-            events.forEach(function(evt) {
-                evt.hidden = false;           
+            let tmp = [];
+            $events.get().forEach(function(evt) {
+                evt.hidden = false; 
+                tmp.push(evt);          
             });
-            refreshEventsView();
+            $events.set(tmp);
         } 
 	});
 
     $(".dd-text-field").on("input", function(e){
 		const txt = $(this).val().toLowerCase();
-        events.forEach(function(evt) {
-            evt.hidden = txt !== '' ? !evt.label.toLowerCase().startsWith(txt) : false;           
+        let tmp = [];
+        $events.get().forEach(function(evt) {
+            evt.hidden = txt !== '' ? !evt.label.toLowerCase().startsWith(txt) : false; 
+            tmp.push(evt);            
         });
-        refreshEventsView();
+        $events.set(tmp);
     });
 
     $('.dd-option-box').on('click', function (e) {
@@ -232,6 +217,7 @@ $(document).ready(function () {
            $(".dd-option-box").hide();
         }
     });
+
     $(document).mousedown(function(e) {
        if($(e.target)[0]?.classList[0]?.startsWith('dd-')) {
             return;
@@ -245,92 +231,85 @@ $(document).ready(function () {
         if ($(this).is(':checked')) {
             $(this).parent().addClass('select-row');
             $(this).parent().parent().addClass('select-row');
-            selectedEvents.add($(this).val());      
+            $selectedEvents.add($(this).val());      
         } else {
             $(this).parent().removeClass('select-row');
             $(this).parent().parent().removeClass('select-row');
-            selectedEvents.delete($(this).val());  
-        }        
-        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
-        $('#replayOptions').prop('disabled', selectedEvents.size === 0);
-        $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
-        $('.dd-select-all').prop('checked', selectedEvents.size === events.length);
-        if(selectedEvents.size === 1) {
-            $('#customReplayId').show();
-        } else {
-            $('#customReplayId').hide();
-            if($('#replayOptions').val() === '0') {
-                $('#replayOptions').val('-1');
-                $('#replayIdDD').hide();
-            }
+            $selectedEvents.delete($(this).val()); 
         }
     });
 
     $(document).on('change', '.dd-select-all', function() {
+        let tmp = [];
         if ($(this).is(':checked')) {
             $('.dd-option-chk').each(function(indx, chxbox) {
                 if(!$(chxbox).prop('checked')) {
                     $(chxbox).prop('checked', true);
                     $(chxbox).parent().addClass('select-row');
                     $(chxbox).parent().parent().addClass('select-row');
-                    selectedEvents.add($(chxbox).val());  
+                    tmp.push($(chxbox).val());      
                 }                
-            });
+            });            
+            $selectedEvents.set(new Set([...$selectedEvents.get(), ...tmp]));
         } else {
             $('.dd-option-chk').each(function(indx, chxbox) {
-                if(!subscribedEvents.has($(chxbox).val())) {
+                if(!$subscribedEvents.get().has($(chxbox).val())) {
                     $(chxbox).prop('checked', false);
                     $(chxbox).parent().removeClass('select-row');
-                    $(chxbox).parent().parent().removeClass('select-row');
-                    selectedEvents.delete($(chxbox).val());   
+                    $(chxbox).parent().parent().removeClass('select-row'); 
                 }                              
             });
+            $selectedEvents.set(new Set([]));
         }
-        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
-        $('#replayOptions').prop('disabled', selectedEvents.size === 0);
-        $('#subscribeBtn').prop('disabled', selectedEvents.size === 0);
-        if(selectedEvents.size === 1) {
-            $('#customReplayId').show();
-        } else {
-            $('#customReplayId').hide();
-            if($('#replayOptions').val() === '0') {
-                $('#replayOptions').val('-1');
-                $('#replayIdDD').hide();
-            }
-        }
+    });
+
+    $selectedEvents.subscribe(val => {
+        $('.dd-text-field').attr("placeholder", $selectedEvents.get().size > 0 ? $selectedEvents.get().size+ ' Event(s) Selected' : ''); 
+        $('.dd-select-all').prop('checked', $selectedEvents.get().size > 0 && $selectedEvents.get().size === $events.get().length);        
+        $('#replayOptions').attr('disabled', $selectedEvents.get().size === 0);
+        $('#replayOptions').val('');
+        replayIdValue.set('');
     });
 
     $('#replayOptions').on("change", function(e){ 
-        $('#replayIdDD').hide();
-        $('#replayId').val('');
-        if($(this).val() === '0') {
+        replayIdValue.set($(this).val());
+        if($(this).val() === '0') {            
+            $('#replayId').val('');
             $('#replayIdDD').show();
-            $('#subscribeBtn').prop('disabled', true);
-        } 
+        } else {
+            $('#replayIdDD').hide();
+            
+        }
     });
 
     $('#replayId').on("input", function(e){ 
-        $('#subscribeBtn').prop('disabled', true); 
-        if($(this).val() !== '') {
-            $('#subscribeBtn').prop('disabled', false);
-        }     
+        replayIdValue.set($(this).val());    
+    });
+
+    replayIdValue.subscribe(val => {
+        $('#subscribeBtn').prop('disabled', val === '' || val === '0'); 
     });
 
     $("#subscribeBtn").on("click", function(e){
         vscode.postMessage({ command: 'subscribe', orgId: $("#org-field").val(), 
-            events:[...selectedEvents].join(), replayId:$("#replayOptions").val() === '0' ? $("#replayId").val() : $("#replayOptions").val()});
+            events:[...$selectedEvents.get()].join(), replayId:$("#replayOptions").val() === '0' ? $("#replayId").val() : $("#replayOptions").val()});
+    });
+
+    $subscribedEvents.subscribe(val => {
+        $('#viewSubEventsBtn').attr('disabled', $subscribedEvents.get().size === 0);
+        $('#viewSubEventsBtn').text('Subscribed Events ('+$subscribedEvents.get().size+')');
     });
 
     $("#viewSubEventsBtn").on("click", function(e){
         var tmp = [];
-        subscribedEvents.forEach(evt => {
+        $subscribedEvents.get().forEach(evt => {
             tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
         }); 
         $('#event-lists-dialog').dialog("open");        
-        $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
+        $('#subeventList').DataTable().clear().rows.add(tmp).draw(); 
     });
 
-    $('#eventList').DataTable({
+    $('#subeventList').DataTable({
         paging: true,
         pageLength: 10,
         lengthChange: false,
@@ -351,35 +330,22 @@ $(document).ready(function () {
 
     $("#viewSubEventsBtn").on("click", function(e){
         var tmp = [];
-        subscribedEvents.forEach(evt => {
+        $subscribedEvents.forEach(evt => {
             tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
         }); 
         $('#event-lists-dialog').dialog("open");        
-        $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
+        $('#subeventList').DataTable().clear().rows.add(tmp).draw(); 
     }); 
 
-    $("#eventList").on('click', 'a.unsubscribe', function (e) {
+    $("#subeventList").on('click', 'a.unsubscribe', function (e) {
         let filename = e.currentTarget.dataset.event;
-        subscribedEvents.delete(filename);
-        selectedEvents.delete(filename);
+        $subscribedEvents.delete(filename);
         vscode.postMessage({ command: 'unsubscribe', orgId: $("#org-field").val(), event:filename});   
         var tmp = [];
-        subscribedEvents.forEach(evt => {
+        $subscribedEvents.get().forEach(evt => {
             tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
         });       
-        $('#eventList').DataTable().clear().rows.add(tmp).draw(); 
-
-        $('.dd-text-field')
-        $('.dd-text-field').attr("placeholder", selectedEvents.size+ ' Event(s) Selected'); 
-        $('.dd-option-chk').each(function() {
-            if($(this).val() === filename) {
-                $(this).prop('checked', false);
-                $(this).parent().removeClass('select-row');
-                $(this).parent().parent().removeClass('select-row');
-            }
-        });
-        $('#viewSubEventsBtn').attr('disabled', subscribedEvents.size  === 0 );
-        $('#viewSubEventsBtn').text('All Subscribed Events ('+subscribedEvents.size+')');
+        $('#subeventList').DataTable().clear().rows.add(tmp).draw();
     });
 
     $('#messagesList').DataTable({
@@ -417,6 +383,12 @@ $(document).ready(function () {
         ]
     });
 
+    $messages.subscribe(val => {
+        $('#messagesList').DataTable().clear().rows.add($messages.get()).draw();
+        $('#export').prop('disabled', $messages.get().length === 0);  
+        $('#clear').prop('disabled', $messages.get().length === 0);
+    });
+
     $("#messagesList").on('click', 'a.payloadview', function (e) {
         let payload = $('#messagesList').DataTable().row($(this).parent().parent()).data().payload;
         $('#payloadview').val(JSON.stringify(JSON.parse(payload), null, 4));
@@ -425,7 +397,7 @@ $(document).ready(function () {
 
     $('#export').on('click', function (e) {
         let list = [['Event Name','Replay Id', 'Created Date', 'Payload']];
-        messages.forEach(e => {
+        $messages.get().forEach(e => {
             list.push(['"'+e.name+'"', '"'+e.replayId+'"', '"'+e.createdDate+'"', '"'+e.payload.replaceAll('"', '')+'"']);
         });
         navigator.clipboard.writeText(list.map(e => e.join(",")).join("\n"));
@@ -433,12 +405,10 @@ $(document).ready(function () {
     });
 
     $('#clear').on('click', function (e) {
-        messages = [];
-        $('.messages').text('Messages ('+messages.length+')');
-        $('#messagesList').DataTable().clear().rows.add(messages).draw();
-        $('#export').prop('disabled', true);  
-        $('#clear').prop('disabled', true);
+        $messages.set([]);
     });
+
+    /******************************************** PUBLISH SECTION ****************************************/
 
     $('#publishList').DataTable({
         paging: true,
@@ -511,5 +481,39 @@ $(document).ready(function () {
             $('#'+e.currentTarget.attributes.name.value).DataTable().draw(); 
         }        
     });
+
+    function createReactive(initial) {
+        let value = initial;
+        const listeners = [];
+
+        return {
+            get() { return value;},
+            set(newValue) { 
+                if (newValue === value) {
+                    return;
+                }
+                value = newValue;
+                listeners.forEach(fn => fn(newValue));
+            },
+            add(newValue) {
+                value.add(newValue);
+                listeners.forEach(fn => fn(newValue));
+            },
+            delete(newValue) { 
+                value.delete(newValue);
+                listeners.forEach(fn => fn(newValue));
+            },
+            subscribe(fn) {
+                listeners.push(fn);
+                fn(value);
+                return () => {
+                    const idx = listeners.indexOf(fn);
+                    if (idx >= 0) {
+                        listeners.splice(idx, 1);
+                    }
+                };
+            }
+        };
+    }
 });
 

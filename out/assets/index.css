@@ -254,3 +254,6 @@ div.dt-container .dt-search input, .ui-tabs-panel {
     background-color: rgb(118, 118, 118) !important;
     color: white !important;
 }
+.dd-text-field:disabled {
+    border: 1px solid #3C3C3C !important;
+}

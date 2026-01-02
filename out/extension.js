@@ -405,6 +405,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 									<div>
 										<label for="text" for="replayOptions" class="top-label">Replay Options:</label>
 										<select type="text" class="replayOptions" id="replayOptions" style="height:36px;" disabled>
+											<option value=""></option>
 											<option value="-1">New Events</option>
 											<option value="-2">Stored Events</option>
 											<option value="0" id="customReplayId">Custom Replay</option>
@@ -416,7 +417,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 									</div>		
 								</div>
 								<button type="button" style="height:36px; margin:22px 0 0 15px;" id="subscribeBtn" disabled>Subscribe</button>
-								<button type="button" style="height:36px; margin:22px 0 0 15px;" id="viewSubEventsBtn" disabled>All Subscribed Events</button>
+								<button type="button" style="height:36px; margin:22px 0 0 15px;" id="viewSubEventsBtn" disabled>Subscribed Events</button>
 							</div>
 							<table id="messagesList" class="display" style="width:100%">
 								<thead>
@@ -443,7 +444,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 										<option value="platformEvents">Platform Events (Custom)</option>
 									</select>		
 								</div>
-								<div id="publishEventsDD" style="margin-left:15px;display:none;">
+								<div id="publishEventsDD" style="margin-left:15px;">
 									<label for="text" for="publishEvents" class="top-label">Events:</label>
 									<select type="text" class="eventTypes" id="publishEvents" style="height:36px;">
 										<option value=""></option>
@@ -474,7 +475,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 					</div>
 				</div>
 				<div id="event-lists-dialog" title="Subscribed Events">
-					<table id="eventList" class="display" style="width:100%">
+					<table id="subeventList" class="display" style="width:100%">
 						<thead>
 							<tr>	
 								<th>Event Name</th>
