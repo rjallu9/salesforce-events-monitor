@@ -18,13 +18,11 @@ $(document).ready(function () {
     let $selectedEvents = createReactive(new Set());
     let replayIdValue = createReactive('');
     let $subscribedEvents = createReactive(new Set());
-    let $messages = createReactive([]);  
+    let $messages = createReactive(new Set());  
 
-    let publishEvents = [];  
-     
-    
-    
-    let publishedMessages = [];  
+    let $publishEvents = createReactive([]);     
+    let $publishedMessages = createReactive(new Set());  
+    let $selectedPublishEvent = createReactive(''); 
 
     window.addEventListener('message', (event) => {
         if(event.data.command === 'orgsList') {
@@ -40,16 +38,11 @@ $(document).ready(function () {
             $("#spinner").hide();
         } else if(event.data.command === 'events') {
             if(event.data.source === 'publish') {
+                let tmp = [];
                 event.data.components.forEach(function(evt) {
-                    publishEvents.push(evt);
+                    tmp.push(evt);
                 });
-                $('#publishEventsDD').attr('disabled', false);
-                $.each(publishEvents, function(index, option) {
-                    $('<option/>', {
-                        value: option.name,
-                        text: option.label
-                    }).appendTo($('#publishEvents'));
-                });
+                $publishEvents.set(tmp);
             } else {
                 let tmp = [];
                 event.data.components.forEach(function(evt) {
@@ -66,12 +59,11 @@ $(document).ready(function () {
                 replayId: event.data.message.event.replayId
             });
         } else if(event.data.command === 'publishedmessage') {
-            publishedMessages.push({
+            $publishedMessages.add({
                 name: event.data.name,
                 payload: event.data.payload,
                 eventId: event.data.eventId
             });
-            $('#publishList').DataTable().clear().rows.add(publishedMessages).draw(); 
         } else if(event.data.command === 'subscribed') {
             $subscribedEvents.add(event.data.name); 
             $selectedEvents.delete(event.data.name);
@@ -105,11 +97,11 @@ $(document).ready(function () {
             $('#tabs').show();             
             $('#eventTypes').val(''); 
             $eventTypeValue.set('');
-            $messages.set([]);
+            $messages.set(new Set());
 
             $('#publishEventTypes').val('');   
-            publishedMessages = [];   
-            $('#publishList').DataTable().clear().rows.add(publishedMessages).draw();     
+            $publishEventTypeValue.set('');
+            $publishedMessages.set(new Set());    
         } else {
             $('#tabs').hide();
         }
@@ -384,9 +376,9 @@ $(document).ready(function () {
     });
 
     $messages.subscribe(val => {
-        $('#messagesList').DataTable().clear().rows.add($messages.get()).draw();
-        $('#export').prop('disabled', $messages.get().length === 0);  
-        $('#clear').prop('disabled', $messages.get().length === 0);
+        $('#messagesList').DataTable().clear().rows.add([...$messages.get()]).draw();
+        $('#export').prop('disabled', $messages.get().size === 0);  
+        $('#clear').prop('disabled', $messages.get().size === 0);
     });
 
     $("#messagesList").on('click', 'a.payloadview', function (e) {
@@ -409,6 +401,69 @@ $(document).ready(function () {
     });
 
     /******************************************** PUBLISH SECTION ****************************************/
+
+    const $publishEventTypeValue = createReactive('');
+    $('#publishEventTypes').on("change", function(e){ 
+        $publishEventTypeValue.set($(this).val());  
+    });
+
+    $publishEventTypeValue.subscribe(val => {
+        $publishEvents.set([]);        
+        $selectedPublishEvent.set('');
+        if(val !== '') {  
+            $('#publishEvents').attr('disabled', false);
+            vscode.postMessage({ command: 'getEvents', source:'publish', orgId: $('#org-field').val(), type: val});            
+            $("#spinner").show();   
+            $(".spinnerlabel").text("Refreshing Events");     
+        } else {
+            $('#publishEvents').attr('disabled', true);            
+        }
+    });
+
+    $publishEvents.subscribe(val => {
+        $('#publishEvents').empty();
+        $('<option/>', { value: '', text: ''}).appendTo($('#publishEvents'));
+        $.each(val, function(index, option) {
+            $('<option/>', { value: option.name, text: option.label }).appendTo($('#publishEvents'));
+        });
+        $('#publishEvents').val('');
+    });
+
+    $('#publishEvents').on("change", function(e){ 
+        $selectedPublishEvent.set($(this).val());    
+    });
+
+    const $payload = createReactive('');
+    $selectedPublishEvent.subscribe(val => { 
+        $payload.set('');
+        $('#payload').val('');
+        $('#payload').prop('disabled', val === '');
+    });
+
+    $("#payload").on("input", function(e){
+        try {
+            JSON.parse($(this).val());
+            $('#payloaderror').hide();       
+            $payload.set($(this).val()); 
+        }catch(err) {
+            $('#payloaderror').show();
+            $payload.set(''); 
+        }   
+    });
+
+    $payload.subscribe(val => {
+        $('#publishBtn').prop('disabled', val === '');
+    });
+
+    $("#publishList").on('click', 'a.payloadview', function (e) {
+        let payload = $('#publishList').DataTable().row($(this).parent().parent()).data().payload;
+        $('#payloadview').val(JSON.stringify(JSON.parse(payload), null, 4));
+        $('#payload-dialog').dialog("open");
+    });
+
+    $('#publishBtn').on('click', function (e) {
+        vscode.postMessage({ command: 'publish', orgId: $('#org-field').val(), type: $('#publishEvents').val(), payload: $('#payload').val()});    
+    });
 
     $('#publishList').DataTable({
         paging: true,
@@ -443,37 +498,8 @@ $(document).ready(function () {
         ]
     });
 
-    $("#publishList").on('click', 'a.payloadview', function (e) {
-        let payload = $('#publishList').DataTable().row($(this).parent().parent()).data().payload;
-        $('#payloadview').val(JSON.stringify(JSON.parse(payload), null, 4));
-        $('#payload-dialog').dialog("open");
-    });
-
-    $('#publishEventTypes').on("change", function(e){ 
-        publishEvents = [];
-        $('#publishEventsDD').hide(); 
-        if($(this).val() !== '') {
-            vscode.postMessage({ command: 'getEvents', source:'publish', orgId: $('#org-field').val(), type: $(this).val()});            
-            $("#spinner").show();   
-            $(".spinnerlabel").text("Refreshing Events");
-        }     
-    });
-
-    $('#publishEvents').on("change", function(e){ 
-        $('#publishPayload').hide(); 
-        if($(this).val() !== '') {
-            $('#payload').val('');
-            $('#publishBtn').prop('disabled', true);
-            $('#publishPayload').show(); 
-        }     
-    });
-
-    $("#payload").on("input", function(e){
-        $('#publishBtn').prop('disabled', $(this).val() === '');
-    });
-
-    $('#publishBtn').on('click', function (e) {
-        vscode.postMessage({ command: 'publish', orgId: $('#org-field').val(), type: $('#publishEvents').val(), payload: $('#payload').val()});    
+    $publishedMessages.subscribe(val => {
+        $('#publishList').DataTable().clear().rows.add([...$publishedMessages.get()]).draw();
     });
 
     $(".tab").on('click', function (e) {

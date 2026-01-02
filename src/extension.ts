@@ -423,14 +423,16 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 								</div>
 								<div id="publishEventsDD" style="margin-left:15px;">
 									<label for="text" for="publishEvents" class="top-label">Events:</label>
-									<select type="text" class="eventTypes" id="publishEvents" style="height:36px;">
-										<option value=""></option>
+									<select type="text" class="eventTypes" id="publishEvents" style="height:36px;width:300px;">
 									</select>	
 								</div>
 							</div>
-							<div style="text-align:right;display:none;" id="publishPayload">
-								<textarea id="payload" style="width:100%;height:150px;margin-top:10px;font-size:14px;" placeholder="Enter payload in JSON format"></textarea>
-								<button type="button" style="width: 100px;margin-top:10px;" id="publishBtn">Publish</button>
+							<div style="text-align:right;" id="publishPayload">
+								<textarea id="payload" style="width:100%;height:150px;margin-top:10px;font-size:14px;" placeholder="Enter payload in JSON format" disabled></textarea>
+								<div style="display:flex">
+									<p style="color:red;display:none;" id="payloaderror">*** Invalid JSON payload.</p>
+									<button type="button" style="width: 100px;margin-top:10px;margin-left:auto;" id="publishBtn" disabled>Publish</button>
+								</div>
 							</div>
 							<table id="publishList" class="display" style="width:100%">
 								<thead>
