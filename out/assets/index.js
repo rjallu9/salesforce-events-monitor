@@ -290,6 +290,7 @@ $(document).ready(function () {
     $subscribedEvents.subscribe(val => {
         $('#viewSubEventsBtn').attr('disabled', $subscribedEvents.get().size === 0);
         $('#viewSubEventsBtn').text('Subscribed Events ('+$subscribedEvents.get().size+')');
+        $('#unsubscribeAllBtn').attr('disabled', $subscribedEvents.get().size === 0);
     });
 
     $("#viewSubEventsBtn").on("click", function(e){
@@ -299,6 +300,12 @@ $(document).ready(function () {
         }); 
         $('#event-lists-dialog').dialog("open");        
         $('#subeventList').DataTable().clear().rows.add(tmp).draw(); 
+    });
+
+    $("#unsubscribeAllBtn").on("click", function(e){
+        vscode.postMessage({ command: 'unsubscribeAll'});  
+        $subscribedEvents.set(new Set());
+        $('#subeventList').DataTable().clear().rows.add([]).draw(); 
     });
 
     $('#subeventList').DataTable({

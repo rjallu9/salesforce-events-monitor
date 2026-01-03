@@ -484,7 +484,10 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 								<th>Action</th>									
 							</tr>
 						</thead>
-					</table>
+					</table>					
+					<div>
+						<button type="button" style="width: 75px;margin-left:auto" id="unsubscribeAllBtn" disabled>Unsubscribe All</button>
+					</div>
 				</div>
 				<div id="payload-dialog" title="Payload">
 					<textarea id="payloadview" style="width:716px;height:490px;font-size:14px;" readonly></textarea>
