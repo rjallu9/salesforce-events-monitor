@@ -126,7 +126,7 @@ $(document).ready(function () {
         if(val === 'custom') {  
             $('#eventsDD').hide(); 
             $('#customChannelDD').show();  
-            $('#customChannelUrl').text('/event/{ChannelName}');
+            $('#customChannelUrl').val('/event/{ChannelName}');
             $customChannel.set('');
         } else {
             $('#eventsDD').show();  
@@ -434,13 +434,22 @@ $(document).ready(function () {
     $publishEventTypeValue.subscribe(val => {
         $publishEvents.set([]);        
         $selectedPublishEvent.set('');
-        if(val !== '') {  
-            $('#publishEvents').attr('disabled', false);
-            vscode.postMessage({ command: 'getEvents', source:'publish', orgId: $('#org-field').val(), type: val});            
-            $("#spinner").show();   
-            $(".spinnerlabel").text("Refreshing Events");     
+        if(val === 'custom') {  
+            $('#publishEventsDD').hide(); 
+            $('#customPublishChannelDD').show();  
+            $('#customPublishChannelUrl').val('/event/{ChannelName}');
+            $customChannel.set('');
         } else {
-            $('#publishEvents').attr('disabled', true);            
+            $('#publishEventsDD').show(); 
+            $('#customPublishChannelDD').hide();  
+            if(val !== '') {  
+                $('#publishEvents').attr('disabled', false);
+                vscode.postMessage({ command: 'getEvents', source:'publish', orgId: $('#org-field').val(), type: val});            
+                $("#spinner").show();   
+                $(".spinnerlabel").text("Refreshing Events");     
+            } else {
+                $('#publishEvents').attr('disabled', true);            
+            }
         }
     });
 
@@ -455,6 +464,10 @@ $(document).ready(function () {
 
     $('#publishEvents').on("change", function(e){ 
         $selectedPublishEvent.set($(this).val());    
+    });
+
+    $('#customPublishChannelUrl').on("input", function(e){ 
+        $selectedPublishEvent.set($(this).val());  
     });
 
     const $payload = createReactive('');
@@ -486,7 +499,8 @@ $(document).ready(function () {
     });
 
     $('#publishBtn').on('click', function (e) {
-        vscode.postMessage({ command: 'publish', orgId: $('#org-field').val(), type: $('#publishEvents').val(), payload: $('#payload').val()});    
+        vscode.postMessage({ command: 'publish', orgId: $('#org-field').val(), 
+            type: $selectedPublishEvent.get(), payload: $('#payload').val()});    
     });
 
     $('#publishList').DataTable({
