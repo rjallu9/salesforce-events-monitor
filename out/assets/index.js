@@ -18,7 +18,8 @@ $(document).ready(function () {
     let $selectedEvents = createReactive(new Set());
     let replayIdValue = createReactive('');
     let $subscribedEvents = createReactive(new Set());
-    let $messages = createReactive(new Set());  
+    let $messages = createReactive(new Set()); 
+    let $customChannel = createReactive('');  
 
     let $publishEvents = createReactive([]);     
     let $publishedMessages = createReactive(new Set());  
@@ -66,7 +67,12 @@ $(document).ready(function () {
             });
         } else if(event.data.command === 'subscribed') {
             $subscribedEvents.add(event.data.name); 
-            $selectedEvents.delete(event.data.name);
+            if($eventTypeValue.get() !== 'custom') {
+                $selectedEvents.delete(event.data.name);
+            } else {
+                $customChannel.set('');
+                $('#customChannelUrl').val(''); 
+            }
         } 
     });
 
@@ -117,14 +123,33 @@ $(document).ready(function () {
         $events.set([]);
         $selectedEvents.set(new Set());
         $('.dd-text-field').attr("placeholder", ''); 
-        if(val !== '') {  
-            $('.dd-text-field').attr('disabled', false);
-            vscode.postMessage({ command: 'getEvents', source:'subscribe', orgId: $('#org-field').val(), type: val});            
-            $("#spinner").show();   
-            $(".spinnerlabel").text("Refreshing Events");     
+        if(val === 'custom') {  
+            $('#eventsDD').hide(); 
+            $('#customChannelDD').show();  
+            $('#customChannelUrl').text('/event/{ChannelName}');
+            $customChannel.set('');
         } else {
-            $('.dd-text-field').attr('disabled', true);            
+            $('#eventsDD').show();  
+            $('#customChannelDD').hide();   
+            if(val !== '') {  
+                $('.dd-text-field').attr('disabled', false);
+                vscode.postMessage({ command: 'getEvents', source:'subscribe', orgId: $('#org-field').val(), type: val});            
+                $("#spinner").show();   
+                $(".spinnerlabel").text("Refreshing Events");     
+            } else {
+                $('.dd-text-field').attr('disabled', true);            
+            }
         }
+    });
+
+    $('#customChannelUrl').on("input", function(e){ 
+        $customChannel.set($(this).val());  
+    });
+
+    $customChannel.subscribe(val => {
+        $('#replayOptions').attr('disabled', val === '');
+        $('#replayOptions').val('');
+        replayIdValue.set('');    
     });
 
     $events.subscribe(val => {
@@ -284,7 +309,8 @@ $(document).ready(function () {
 
     $("#subscribeBtn").on("click", function(e){
         vscode.postMessage({ command: 'subscribe', orgId: $("#org-field").val(), 
-            events:[...$selectedEvents.get()].join(), replayId:$("#replayOptions").val() === '0' ? $("#replayId").val() : $("#replayOptions").val()});
+            events: $eventTypeValue.get() === 'custom' ? $customChannel.get() : [...$selectedEvents.get()].join(), 
+            replayId:$("#replayOptions").val() === '0' ? $("#replayId").val() : $("#replayOptions").val()});
     });
 
     $subscribedEvents.subscribe(val => {

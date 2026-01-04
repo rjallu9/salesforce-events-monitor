@@ -371,8 +371,13 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 										<option value="cdcEvents">Change Data Captures</option>
 										<option value="pushTopics">Push Topics</option>
 										<option value="monitoringEvents">Monitoring Events</option>
+										<option value="custom">Custom Channel</option>
 									</select>		
-								</div>
+								</div>								
+								<div id="customChannelDD" style="margin-left:15px;display:none;">
+									<label for="text" for="customChannelUrl" class="top-label">Subscription Channel:</label>
+									<input type="text" class="customChannelUrl" id="customChannelUrl" style="height:32px;width:300px;border:1px solid rgb(118, 118, 118);"></input>	
+								</div>	
 								<div id="eventsDD" style="margin-left:15px;">
 									<div>	
 										<label for="text" for="dd-text-field" class="top-label">Events: </label>
