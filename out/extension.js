@@ -32,6 +32,9 @@ var __importStar = (this && this.__importStar) || (function () {
         return result;
     };
 })();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.activate = activate;
 exports.deactivate = deactivate;
@@ -43,7 +46,9 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const jsforce = require('jsforce');
 const { StreamingExtension } = require('jsforce/api/streaming');
+const events_json_1 = __importDefault(require("./assets/events.json"));
 let tmpDirectory = '';
+let EVENTS_SET = events_json_1.default;
 function activate(context) {
     const disposable = vscode.commands.registerCommand('salesforce-events-monitor.build', () => {
         const panel = vscode.window.createWebviewPanel('packageBuilder', 'Salesforce Events Monitor', vscode.ViewColumn.One, { enableScripts: true, retainContextWhenHidden: true });
@@ -197,7 +202,7 @@ function getEvents(accessToken, endPoint, type) {
             prefix = '/event/';
         }
         else if (type === 'standardplatformEvents') {
-            query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE IsTriggerable=true and QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+            query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
             prefix = '/event/';
         }
         else if (type === 'cdcEvents') {
@@ -208,26 +213,41 @@ function getEvents(accessToken, endPoint, type) {
             query = '<urn:queryAll><urn:queryString>SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>';
             prefix = '/topic/';
         }
-        sendSoapAPIRequest(accessToken, endPoint, query)
-            .then((result) => {
-            const records = result['queryAllResponse']['result']['records'];
+        else if (type === 'monitoringEvents') {
+            prefix = '/event/';
             let pfs = [];
-            if (records) {
-                let tmp = records instanceof Array ? records : [records];
-                tmp.forEach((evt) => {
-                    if (evt['sf:type'] === 'PushTopic') {
-                        pfs.push({ name: evt['sf:Name'], hidden: false, label: evt['sf:Name'], url: prefix + evt['sf:Name'] });
-                    }
-                    else {
-                        pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix + evt['sf:QualifiedApiName'] });
-                    }
-                });
-            }
+            EVENTS_SET.monitoringEvents.forEach((evt) => {
+                pfs.push({ name: evt, hidden: false, label: evt, url: prefix + evt });
+            });
             resolve(pfs);
-        })
-            .catch((error) => {
-            reject(error);
-        });
+        }
+        if (type !== 'monitoringEvents') {
+            sendSoapAPIRequest(accessToken, endPoint, query)
+                .then((result) => {
+                const records = result['queryAllResponse']['result']['records'];
+                let pfs = [];
+                if (records) {
+                    let tmp = records instanceof Array ? records : [records];
+                    tmp.forEach((evt) => {
+                        if (evt['sf:type'] === 'PushTopic') {
+                            pfs.push({ name: evt['sf:Name'], hidden: false, label: evt['sf:Name'], url: prefix + evt['sf:Name'] });
+                        }
+                        else if (type === 'standardplatformEvents') {
+                            if (EVENTS_SET.standardPlatformEvents.indexOf(evt['sf:QualifiedApiName']) >= 0) {
+                                pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix + evt['sf:QualifiedApiName'] });
+                            }
+                        }
+                        else {
+                            pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix + evt['sf:QualifiedApiName'] });
+                        }
+                    });
+                }
+                resolve(pfs);
+            })
+                .catch((error) => {
+                reject(error);
+            });
+        }
     });
 }
 function validateSession(accessToken, endPoint, orgId) {
@@ -378,6 +398,7 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 										<option value="standardplatformEvents">Platform Events (Standard)</option>
 										<option value="cdcEvents">Change Data Captures</option>
 										<option value="pushTopics">Push Topics</option>
+										<option value="monitoringEvents">Monitoring Events</option>
 									</select>		
 								</div>
 								<div id="eventsDD" style="margin-left:15px;">
@@ -485,8 +506,8 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 							</tr>
 						</thead>
 					</table>					
-					<div>
-						<button type="button" style="width: 75px;margin-left:auto" id="unsubscribeAllBtn" disabled>Unsubscribe All</button>
+					<div style="text-align:right;margin-top:10px;">
+						<button type="button" style="width:200px;" id="unsubscribeAllBtn" disabled>Unsubscribe All</button>
 					</div>
 				</div>
 				<div id="payload-dialog" title="Payload">

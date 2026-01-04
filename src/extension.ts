@@ -6,9 +6,10 @@ const { exec } = require('child_process');
 const fs = require('fs');
 const jsforce = require('jsforce');
 const { StreamingExtension } = require('jsforce/api/streaming');
+import eventsSet from './assets/events.json';
 
 let tmpDirectory = '';
-
+let EVENTS_SET = eventsSet;
 export function activate(context: vscode.ExtensionContext) {
 	const disposable = vscode.commands.registerCommand('salesforce-events-monitor.build', () => {
 			const panel = vscode.window.createWebviewPanel(
@@ -173,7 +174,7 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/event/';
 		} else if(type === 'standardplatformEvents') {
-			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE IsTriggerable=true and QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
 			prefix = '/event/';
 		} else if(type === 'cdcEvents') {
 			query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%ChangeEvent\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
@@ -181,26 +182,40 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 		} else if(type === 'pushTopics') {
 			query = '<urn:queryAll><urn:queryString>SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>';
 			prefix = '/topic/';
+		} else if(type === 'monitoringEvents') {
+			prefix = '/event/';
+			let pfs:any = [];	
+			EVENTS_SET.monitoringEvents.forEach((evt:any) => {
+				pfs.push({ name: evt, hidden: false, label: evt, url: prefix+evt});
+			});	
+			resolve(pfs);	
 		}
-		sendSoapAPIRequest(accessToken, endPoint, query)
-		.then((result:any) => {
-			const records = result['queryAllResponse']['result']['records'];	
-			let pfs:any = [];				
-			if(records) {
-				let tmp = records instanceof Array ? records : [records];
-				tmp.forEach((evt:any) => {
-					if(evt['sf:type'] === 'PushTopic') {
-						pfs.push({ name: evt['sf:Name'], hidden: false, label: evt['sf:Name'], url: prefix+evt['sf:Name']});
-					} else {
-						pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix+evt['sf:QualifiedApiName']});
-					}				
-				});	
-			}
-			resolve(pfs);
-        })
-        .catch((error:any) => {
-            reject(error);			
-        });
+
+		if(type !== 'monitoringEvents') {
+			sendSoapAPIRequest(accessToken, endPoint, query)
+			.then((result:any) => {
+				const records = result['queryAllResponse']['result']['records'];	
+				let pfs:any = [];				
+				if(records) {
+					let tmp = records instanceof Array ? records : [records];
+					tmp.forEach((evt:any) => {
+						if(evt['sf:type'] === 'PushTopic') {
+							pfs.push({ name: evt['sf:Name'], hidden: false, label: evt['sf:Name'], url: prefix+evt['sf:Name']});
+						} else if(type === 'standardplatformEvents') {
+							if(EVENTS_SET.standardPlatformEvents.indexOf(evt['sf:QualifiedApiName']) >= 0) {
+								pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix+evt['sf:QualifiedApiName']});
+							}
+						} else {
+							pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix+evt['sf:QualifiedApiName']});
+						}				
+					});	
+				}
+				resolve(pfs);
+			})
+			.catch((error:any) => {
+				reject(error);			
+			});
+		}
     });
 }
 
@@ -355,6 +370,7 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 										<option value="standardplatformEvents">Platform Events (Standard)</option>
 										<option value="cdcEvents">Change Data Captures</option>
 										<option value="pushTopics">Push Topics</option>
+										<option value="monitoringEvents">Monitoring Events</option>
 									</select>		
 								</div>
 								<div id="eventsDD" style="margin-left:15px;">
@@ -463,7 +479,7 @@ function getWebviewContent(basedpath:string, scriptUri:vscode.Uri, cssUri:vscode
 						</thead>
 					</table>					
 					<div style="text-align:right;margin-top:10px;">
-						<button type="button" style="width:100px;" id="unsubscribeAllBtn" disabled>Unsubscribe All</button>
+						<button type="button" style="width:110px;" id="unsubscribeAllBtn" disabled>Unsubscribe All</button>
 					</div>
 				</div>
 				<div id="payload-dialog" title="Payload">

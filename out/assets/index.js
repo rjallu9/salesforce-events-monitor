@@ -302,12 +302,6 @@ $(document).ready(function () {
         $('#subeventList').DataTable().clear().rows.add(tmp).draw(); 
     });
 
-    $("#unsubscribeAllBtn").on("click", function(e){
-        vscode.postMessage({ command: 'unsubscribeAll'});  
-        $subscribedEvents.set(new Set());
-        $('#subeventList').DataTable().clear().rows.add([]).draw(); 
-    });
-
     $('#subeventList').DataTable({
         paging: true,
         pageLength: 10,
@@ -325,16 +319,13 @@ $(document).ready(function () {
             { "width": "70%", "targets": 0 },
             { "width": "30%", "targets": 1 }
         ]
-    });
+    });    
 
-    $("#viewSubEventsBtn").on("click", function(e){
-        var tmp = [];
-        $subscribedEvents.forEach(evt => {
-            tmp.push({name: evt, action: `<a href="#" style="color:#4daafc" class='unsubscribe' data-event="${evt}">Unsubscribe</a>`});
-        }); 
-        $('#event-lists-dialog').dialog("open");        
-        $('#subeventList').DataTable().clear().rows.add(tmp).draw(); 
-    }); 
+    $("#unsubscribeAllBtn").on("click", function(e){
+        vscode.postMessage({ command: 'unsubscribeAll'});  
+        $subscribedEvents.set(new Set());
+        $('#subeventList').DataTable().clear().rows.add([]).draw(); 
+    });
 
     $("#subeventList").on('click', 'a.unsubscribe', function (e) {
         let filename = e.currentTarget.dataset.event;
