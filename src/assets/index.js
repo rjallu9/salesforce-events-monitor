@@ -421,7 +421,7 @@ $(document).ready(function () {
     });
 
     $('#clear').on('click', function (e) {
-        $messages.set([]);
+        $messages.set(new Set());
     });
 
     /******************************************** PUBLISH SECTION ****************************************/

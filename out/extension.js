@@ -468,17 +468,12 @@ function getWebviewContent(basedpath, scriptUri, cssUri) {
 									<select type="text" class="eventTypes" id="publishEventTypes" style="height:36px;">
 										<option value=""></option>
 										<option value="platformEvents">Platform Events (Custom)</option>
-										<option value="custom">Custom Channel</option>
 									</select>		
 								</div>
 								<div id="publishEventsDD" style="margin-left:15px;">
 									<label for="text" for="publishEvents" class="top-label">Events:</label>
 									<select type="text" class="eventTypes" id="publishEvents" style="height:36px;width:300px;">
 									</select>	
-								</div>
-								<div id="customPublishChannelDD" style="margin-left:15px;display:none;">
-									<label for="text" for="customPublishChannelUrl" class="top-label">Subscription Channel:</label>
-									<input type="text" class="customPublishChannelUrl" id="customPublishChannelUrl" style="height:32px;width:300px;border:1px solid rgb(118, 118, 118);"></input>	
 								</div>
 							</div>
 							<div style="text-align:right;" id="publishPayload">
