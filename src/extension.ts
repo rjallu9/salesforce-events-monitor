@@ -4,9 +4,8 @@ const axios = require('axios');
 const xml2js = require('xml2js');
 const { exec } = require('child_process');
 const fs = require('fs');
-const jsforce = require('jsforce');
-const { StreamingExtension } = require('jsforce/api/streaming');
 import eventsSet from './assets/events.json';
+const faye = require('faye');
 
 let tmpDirectory = '';
 let EVENTS_SET = eventsSet;
@@ -80,70 +79,63 @@ export function activate(context: vscode.ExtensionContext) {
 						}		
 						break;
 					case 'subscribe':			
-						var org = orgsList.find((org:any) => org.orgId === message.orgId);	
-						const conn = new jsforce.Connection({
-							instanceUrl : org.instanceUrl,
-							accessToken : org.accessToken
+						var org = orgsList.find((org:any) => org.orgId === message.orgId);
+						const client = new faye.Client(`${org.instanceUrl}/cometd/65.0/`);
+						client.setHeader('Authorization', `Bearer ${org.accessToken}`);
+						let channelReplays = {"replay": {}};
+						message.events.split(',').forEach((channel:any) => {
+							(channelReplays.replay as any)[channel] = parseInt(message.replayId);
 						});
-						var authError = false;
-						const authFailureExt = new StreamingExtension.AuthFailure((msg:any) => {
-							if(!authError) {
-								authError = true;
-								vscode.window.showErrorMessage(`Failed to Subscribe. Error: ${msg.ext.sfdc.failureReason}`);
-							}							
-						});
-						message.events.split(',').forEach((event:any) => {
-							const replayExt = new StreamingExtension.Replay(event, parseInt(message.replayId));							
-							let subscribe = conn.streaming.createClient([authFailureExt, replayExt]).subscribe(event, (msg:any) => {
-								panel.webview.postMessage({ command: 'message', message: msg, name:event});	
-							});
-							let intervalId = setInterval(() => {
-								if(subscribe._promise) {
-									if(subscribe._promise._state === 0) {
-										vscode.window.showInformationMessage(`Successfully Subscribed to ${event}`);	
-										panel.webview.postMessage({ command: 'subscribed', name:event});	
-										subscribeList.set(event, subscribe);
-									} else {
-										vscode.window.showErrorMessage(`Failed to Subscribed to ${event} Error: ${subscribe._promise._value.message}`);
-									}
-									clearInterval(intervalId);
+						client.addExtension({
+								outgoing: (msg:any, callback:any) => {
+									msg.ext = channelReplays;
+									callback(msg);
 								}
-							}, 1000);	
-						});	
+						});
+						message.events.split(',').forEach((channel:any) => {
+							const subscribe = client.subscribe(channel, (msg:any) => {	
+								panel.webview.postMessage({ command: 'message', message: msg, name:channel});									
+							});
+							subscribe.callback((msg:any) => {	
+								panel.webview.postMessage({ command: 'subscribed', name:channel});								
+								vscode.window.showInformationMessage(`Successfully Subscribed to ${channel}`);
+								subscribeList.set(channel, subscribe);
+							});
+							subscribe.errback((err:any) => {
+								vscode.window.showErrorMessage(`Failed to Subscribed to ${channel} Error: ${err}`);
+							});	
+						});
 						break;
 					case 'unsubscribe':			
 						var subscription = subscribeList.get(message.event);		
-						subscription.unsubscribe();	
+						subscription.cancel();	
 						subscribeList.delete(message.event);
 						vscode.window.showInformationMessage(`Successfully Unsubscribed to ${message.event}`);	
 						break;
 					case 'publish':			
-						var org = orgsList.find((org:any) => org.orgId === message.orgId);	
-						const con = new jsforce.Connection({
-							instanceUrl : org.instanceUrl,
-							accessToken : org.accessToken
-						});
-						try{
-							con.sobject(message.type).create(JSON.parse(message.payload))
-							.then((result:any) => {
-								if (result.success) {
-									vscode.window.showInformationMessage(`Event published successfully. Event ID: ${result.id}`);
+						var org = orgsList.find((org:any) => org.orgId === message.orgId);
+						axios.post(org.instanceUrl+"/services/data/v65.0/sobjects/"+message.type, message.payload, 
+							{   
+								headers: {
+									'Content-Type': 'application/json; charset=utf-8',
+									'Authorization': `Bearer ${org.accessToken}`
+								},
+							}
+						).then((response:any) => {
+							vscode.window.showInformationMessage(`Event published successfully. Event ID: ${response.data.id}`);
 									panel.webview.postMessage({ command: 'publishedmessage', 
-										payload: message.payload, name:message.type, eventId: result.id});	
-								} else {
-									vscode.window.showErrorMessage(`Unable to publish event : ${result}`);	
-								}
-							});
-						} catch(err) {
-							vscode.window.showErrorMessage(`Invalid JSON Payload. ${err}`);	
-						}
+										payload: message.payload, name:message.type, eventId: response.data.id});	
+						})
+						.catch((error:any) => {
+							console.log(error);	
+						});
 						break;
 					case 'toastMessage':
 						vscode.window.showInformationMessage(`${message.message}`);	
 						break;	
 					case 'unsubscribeAll':						
 						for (const [key, value] of subscribeList) {
-							value.unsubscribe();
+							value.cancel();
 						}
 						subscribeList.clear();
 						break;	
@@ -258,7 +250,7 @@ function sendSoapAPIRequest(accessToken:string,  endPoint:string, body:string) {
 		'<soapenv:Body>'+body+'</soapenv:Body></soapenv:Envelope>';
 	
 	return new Promise((resolve, reject) => {
-		axios.post(endPoint+"/services/Soap/u/62.0", request, { headers: {
+		axios.post(endPoint+"/services/Soap/u/65.0", request, { headers: {
 					'Content-Type': 'text/xml; charset=utf-8',
 					'SOAPAction': 'Update',
 				},

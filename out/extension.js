@@ -1,1 +1,522 @@
-"use strict";var __createBinding=this&&this.__createBinding||(Object.create?function(t,e,n,s){void 0===s&&(s=n);var i=Object.getOwnPropertyDescriptor(e,n);i&&!("get"in i?!e.__esModule:i.writable||i.configurable)||(i={enumerable:!0,get:function(){return e[n]}}),Object.defineProperty(t,s,i)}:function(t,e,n,s){void 0===s&&(s=n),t[s]=e[n]}),__setModuleDefault=this&&this.__setModuleDefault||(Object.create?function(t,e){Object.defineProperty(t,"default",{enumerable:!0,value:e})}:function(t,e){t.default=e}),__importStar=this&&this.__importStar||function(){var t=function(e){return t=Object.getOwnPropertyNames||function(t){var e=[];for(var n in t)Object.prototype.hasOwnProperty.call(t,n)&&(e[e.length]=n);return e},t(e)};return function(e){if(e&&e.__esModule)return e;var n={};if(null!=e)for(var s=t(e),i=0;i<s.length;i++)"default"!==s[i]&&__createBinding(n,e,s[i]);return __setModuleDefault(n,e),n}}(),__importDefault=this&&this.__importDefault||function(t){return t&&t.__esModule?t:{default:t}};Object.defineProperty(exports,"__esModule",{value:!0}),exports.activate=activate,exports.deactivate=deactivate;const vscode=__importStar(require("vscode")),path=require("path"),axios=require("axios"),xml2js=require("xml2js"),{exec:exec}=require("child_process"),fs=require("fs"),jsforce=require("jsforce"),{StreamingExtension:StreamingExtension}=require("jsforce/api/streaming"),events_json_1=__importDefault(require("./assets/events.json"));let tmpDirectory="",EVENTS_SET=events_json_1.default;function activate(t){const e=vscode.commands.registerCommand("salesforce-events-monitor.build",(()=>{const e=vscode.window.createWebviewPanel("packageBuilder","Salesforce Events Monitor",vscode.ViewColumn.One,{enableScripts:!0,retainContextWhenHidden:!0}),n=vscode.Uri.file(path.join(t.extensionPath,"out","assets/index.js")),s=e.webview.asWebviewUri(n),i=vscode.Uri.file(path.join(t.extensionPath,"out","assets/index.css")),a=e.webview.asWebviewUri(i);e.webview.html=getWebviewContent(t.extensionPath,s,a);let r=[],o=new Map,l=new Map;tmpDirectory=t.globalStorageUri.fsPath+"/tmp",e.webview.onDidReceiveMessage((n=>{switch(n.command){case"getAuthOrgs":var s=path.join(t.globalStorageUri.fsPath,"orgsList.json");fs.existsSync(s)&&!n.refresh?(r=JSON.parse(fs.readFileSync(s,"utf-8")),e.webview.postMessage({command:"orgsList",orgs:r})):getAuthOrgs().then((t=>{r=t,e.webview.postMessage({command:"orgsList",orgs:t});const n=path.dirname(s);fs.existsSync(n)||fs.mkdirSync(n,{recursive:!0}),fs.writeFile(s,JSON.stringify(r,null,2),"utf8",(t=>{}))}));break;case"getEvents":var i=r.find((t=>t.orgId===n.orgId));l.has(i.orgId+n.type)?e.webview.postMessage({command:"events",source:n.source,components:l.get(i.orgId+n.type)}):validateSession(i.accessToken,i.instanceUrl,n.orgId).then((s=>{s.valid&&(s.orgsList&&(r=s.orgsList,i=r.find((t=>t.orgId===n.orgId)),fs.writeFile(t.globalStorageUri.fsPath+"/orgsList.json",JSON.stringify(r,null,2),"utf8",(t=>{}))),getEvents(i.accessToken,i.instanceUrl,n.type).then((t=>{e.webview.postMessage({command:"events",source:n.source,components:t})})))})).catch((t=>{e.webview.postMessage({command:"error",message:"Unable to connect to the Org."})}));break;case"subscribe":i=r.find((t=>t.orgId===n.orgId));const d=new jsforce.Connection({instanceUrl:i.instanceUrl,accessToken:i.accessToken});var a=!1;const c=new StreamingExtension.AuthFailure((t=>{a||(a=!0,vscode.window.showErrorMessage(`Failed to Subscribe. Error: ${t.ext.sfdc.failureReason}`))}));n.events.split(",").forEach((t=>{const s=new StreamingExtension.Replay(t,parseInt(n.replayId));let i=d.streaming.createClient([c,s]).subscribe(t,(n=>{e.webview.postMessage({command:"message",message:n,name:t})})),a=setInterval((()=>{i._promise&&(0===i._promise._state?(vscode.window.showInformationMessage(`Successfully Subscribed to ${t}`),e.webview.postMessage({command:"subscribed",name:t}),o.set(t,i)):vscode.window.showErrorMessage(`Failed to Subscribed to ${t} Error: ${i._promise._value.message}`),clearInterval(a))}),1e3)}));break;case"unsubscribe":o.get(n.event).unsubscribe(),o.delete(n.event),vscode.window.showInformationMessage(`Successfully Unsubscribed to ${n.event}`);break;case"publish":i=r.find((t=>t.orgId===n.orgId));const p=new jsforce.Connection({instanceUrl:i.instanceUrl,accessToken:i.accessToken});try{p.sobject(n.type).create(JSON.parse(n.payload)).then((t=>{t.success?(vscode.window.showInformationMessage(`Event published successfully. Event ID: ${t.id}`),e.webview.postMessage({command:"publishedmessage",payload:n.payload,name:n.type,eventId:t.id})):vscode.window.showErrorMessage(`Unable to publish event : ${t}`)}))}catch(t){vscode.window.showErrorMessage(`Invalid JSON Payload. ${t}`)}break;case"toastMessage":vscode.window.showInformationMessage(`${n.message}`);break;case"unsubscribeAll":for(const[t,e]of o)e.unsubscribe();o.clear();break;default:console.log("Unknown command:",n.command)}})),e.onDidDispose((()=>{if(tmpDirectory&&fs.existsSync(tmpDirectory))try{fs.rmSync(tmpDirectory,{recursive:!0,force:!0})}catch(t){}}))}));t.subscriptions.push(e)}function getEvents(t,e,n){return new Promise(((s,i)=>{let a="",r="";if("platformEvents"===n)a="<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE 'e%' ORDER BY Label ASC</urn:queryString></urn:queryAll>",r="/event/";else if("standardplatformEvents"===n)a="<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like '%Event' and (Not QualifiedApiName like '%ChangeEvent') ORDER BY Label ASC</urn:queryString></urn:queryAll>",r="/event/";else if("cdcEvents"===n)a="<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like '%ChangeEvent' ORDER BY Label ASC</urn:queryString></urn:queryAll>",r="/data/";else if("pushTopics"===n)a="<urn:queryAll><urn:queryString>SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>",r="/topic/";else if("monitoringEvents"===n){r="/event/";let t=[];EVENTS_SET.monitoringEvents.forEach((e=>{t.push({name:e,hidden:!1,label:e,url:r+e})})),s(t)}"monitoringEvents"!==n&&sendSoapAPIRequest(t,e,a).then((t=>{const e=t.queryAllResponse.result.records;let i=[];if(e){(e instanceof Array?e:[e]).forEach((t=>{"PushTopic"===t["sf:type"]?i.push({name:t["sf:Name"],hidden:!1,label:t["sf:Name"],url:r+t["sf:Name"]}):"standardplatformEvents"===n?EVENTS_SET.standardPlatformEvents.indexOf(t["sf:QualifiedApiName"])>=0&&i.push({name:t["sf:QualifiedApiName"],hidden:!1,label:t["sf:Label"],url:r+t["sf:QualifiedApiName"]}):i.push({name:t["sf:QualifiedApiName"],hidden:!1,label:t["sf:Label"],url:r+t["sf:QualifiedApiName"]})}))}s(i)})).catch((t=>{i(t)}))}))}function validateSession(t,e,n){return new Promise(((s,i)=>{sendSoapAPIRequest(t,e,"<urn:getUserInfo/>").then((t=>{s({valid:!0})})).catch((t=>{if(t.indexOf("INVALID_SESSION_ID")>=0){let e=0;function a(){e++,getAuthOrgs().then((t=>{let r=t.find((t=>t.orgId===n));return sendSoapAPIRequest(r.accessToken,r.instanceUrl,"<urn:getUserInfo/>").then((e=>{s({valid:!0,orgsList:t})})).catch((t=>{e<5?a():i(new Error("Max retries reached. Session validation failed."))}))}))}a()}}))}))}function sendSoapAPIRequest(t,e,n){const s=new xml2js.Parser({explicitArray:!1,ignoreAttrs:!0});let i='<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com"><soapenv:Header><urn:SessionHeader><urn:sessionId>'+t+"</urn:sessionId></urn:SessionHeader></soapenv:Header><soapenv:Body>"+n+"</soapenv:Body></soapenv:Envelope>";return new Promise(((t,n)=>{axios.post(e+"/services/Soap/u/62.0",i,{headers:{"Content-Type":"text/xml; charset=utf-8",SOAPAction:"Update"}}).then((e=>{s.parseString(e.data,((e,n)=>{e?vscode.window.showErrorMessage("Error parsing SOAP XML:",e):t(n["soapenv:Envelope"]["soapenv:Body"])}))})).catch((t=>{s.parseString(t.response.data,((t,e)=>{n(e["soapenv:Envelope"]["soapenv:Body"]["soapenv:Fault"].faultstring)}))}))}))}function getAuthOrgs(){return new Promise(((t,e)=>{exec("sf org list --json",((n,s,i)=>{if(n)e(`Error: ${n}`);else try{const e=JSON.parse(s).result,n=[],i=[],a=[];i.push(...e.other,...e.sandboxes,...e.nonScratchOrgs,...e.devHubs,...e.scratchOrgs),i.forEach((t=>{("Connected"===t.connectedStatus||"Active"===t.status)&&a.indexOf(t.orgId)<0&&(n.push({name:t.alias+"("+t.username+")",alias:t.alias,orgId:t.orgId,accessToken:t.accessToken,instanceUrl:t.instanceUrl}),a.push(t.orgId))})),t(n)}catch(t){e(`Parse Error: ${t.message}`)}}))}))}function getWebviewContent(t,e,n){return`<!doctype html>\n\t\t\t<html lang="en">\n\t\t\t<head>\n\t\t\t\t<meta charset="UTF-8" />\n\t\t\t\t<meta name="viewport" content="width=device-width, initial-scale=1.0" />\n\t\t\t\t<title>Salesforce Events Monitor</title>\n\t\t\t\t<script src="https://code.jquery.com/jquery-3.7.1.min.js"><\/script>\n\t\t\t\t<script src="https://code.jquery.com/ui/1.14.1/jquery-ui.min.js"><\/script>\n\t\t\t\t<script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js"><\/script>\t\t\t\t\n\t\t\t\t<link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">\n\t\t\t\t<script src="https://cdn.datatables.net/select/2.1.0/js/dataTables.select.min.js"><\/script>\t\t\t\t\n\t\t\t\t<link rel="stylesheet" href="https://cdn.datatables.net/select/2.1.0/css/select.dataTables.min.css">\n\t\t\t\t<link rel="stylesheet" href="https://code.jquery.com/ui/1.14.1/themes/base/jquery-ui.css">\n\t\t\t</head>\n\t\t\t<body>\t\n\t\t\t\t<div style="margin: 20px;">\n\t\t\t\t\t<div style="display:flex;justify-content: space-between;align-items: center;">\t\n\t\t\t\t\t\t<h1>Salesforce Events Monitor</h1>\t\t\n\t\t\t\t\t\t<a href="https://github.com/rjallu9/salesforce-event-monitor/issues" title="Report issue" style="height"25px;">\n\t\t\t\t\t\t\t<svg width="25px" height="25px" viewBox="0 0 36 36" version="1.1"  preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">\n\t\t\t\t\t\t\t\t<circle cx="18" cy="18" r="14" fill="#0078d4"/>\n\t\t\t\t\t\t\t\t<text x="18" y="20" font-family="Arial" font-size="20" text-anchor="middle" alignment-baseline="middle" fill="white">?</text>\n\t\t\t\t\t\t\t</svg>\n\t\t\t\t\t\t</a>\t\t\n\t\t\t\t\t</div>\n\t\t\t\t\t<div style="display:flex;">\t\t\t\n\t\t\t\t\t\t<div id="org" style="margin-right:5px;display:none;">\t\n\t\t\t\t\t\t\t<label for="text" for="org-field" class="top-label">Org:</label>\n\t\t\t\t\t\t\t<select type="text" class="org-field" id="org-field" style="height:36px;">\n\t\t\t\t\t\t\t</select>\t\t\n\t\t\t\t\t\t</div>\n\t\t\t\t\t\t<div>\n\t\t\t\t\t\t\t<p id="org-refresh" style="margin-bottom:0;margin-top:25px;margin-right:5px;cursor:pointer;display:none;" title="Refresh Orgs">\n\t\t\t\t\t\t\t\t<svg width="25" height="25" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">\n\t\t\t\t\t\t\t\t\t<circle cx="512" cy="512" r="512" fill="#0078d4"></circle>\n\t\t\t\t\t\t\t\t\t<path d="M512 281.6c71.221 0 136.396 32.619 179.2 85.526V256h51.2v204.8H537.6v-51.2h121.511c-32.857-47.165-87.235-76.8-147.111-76.8-98.97 0-179.2 80.23-179.2 179.2 0 98.97 80.23 179.2 179.2 179.2v-.02c73.665 0 138.994-44.857 166.176-111.988l47.458 19.216C690.689 684.711 606.7 742.38 512 742.38v.02c-127.246 0-230.4-103.154-230.4-230.4 0-127.246 103.154-230.4 230.4-230.4z" fill="white" fill-rule="nonzero"></path>\n\t\t\t\t\t\t\t\t</svg>\n\t\t\t\t\t\t\t</p>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t</div>\n\t\t\t\t\t<div id="tabs" style="margin-top:10px;">\n\t\t\t\t\t\t<ul>\n\t\t\t\t\t\t\t<li class="tab" name="messagesList"><a href="#messagesTab">Subscribe</a></li>\n\t\t\t\t\t\t\t<li class="tab" name="publishList"><a href="#publishTab">Publish</a></li>\n\t\t\t\t\t\t</ul>\n\t\t\t\t\t\t<div id="messagesTab">\t\t\n\t\t\t\t\t\t\t<div style="display:flex;">\t\t\t\t\n\t\t\t\t\t\t\t\t<div id="eventTypesDD">\t\n\t\t\t\t\t\t\t\t\t<label for="text" for="eventTypes" class="top-label">Types:</label>\n\t\t\t\t\t\t\t\t\t<select type="text" class="eventTypes" id="eventTypes" style="height:36px;">\n\t\t\t\t\t\t\t\t\t\t<option value=""></option>\n\t\t\t\t\t\t\t\t\t\t<option value="platformEvents">Platform Events (Custom)</option>\n\t\t\t\t\t\t\t\t\t\t<option value="standardplatformEvents">Platform Events (Standard)</option>\n\t\t\t\t\t\t\t\t\t\t<option value="cdcEvents">Change Data Captures</option>\n\t\t\t\t\t\t\t\t\t\t<option value="pushTopics">Push Topics</option>\n\t\t\t\t\t\t\t\t\t\t<option value="monitoringEvents">Monitoring Events</option>\n\t\t\t\t\t\t\t\t\t\t<option value="custom">Custom Channel</option>\n\t\t\t\t\t\t\t\t\t</select>\t\t\n\t\t\t\t\t\t\t\t</div>\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t<div id="customChannelDD" style="margin-left:15px;display:none;">\n\t\t\t\t\t\t\t\t\t<label for="text" for="customChannelUrl" class="top-label">Subscription Channel:</label>\n\t\t\t\t\t\t\t\t\t<input type="text" class="customChannelUrl" id="customChannelUrl" style="height:32px;width:300px;border:1px solid rgb(118, 118, 118);"></input>\t\n\t\t\t\t\t\t\t\t</div>\t\n\t\t\t\t\t\t\t\t<div id="eventsDD" style="margin-left:15px;">\n\t\t\t\t\t\t\t\t\t<div>\t\n\t\t\t\t\t\t\t\t\t\t<label for="text" for="dd-text-field" class="top-label">Events: </label>\n\t\t\t\t\t\t\t\t\t\t<input type="text" class="dd-text-field" id="dd-text-field"></input>\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t\t<span style="margin-left: -19px;color: #888;">\n\t\t\t\t\t\t\t\t\t\t\t<svg width="15" height="15" viewBox="0 0 24 12" fill="#cccccc;" xmlns="http://www.w3.org/2000/svg" style="color: #cccccc;">\n\t\t\t\t\t\t\t\t\t\t\t\t<path d="M6 9l6 6 6-6" stroke="#cccccc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>\n\t\t\t\t\t\t\t\t\t\t\t</svg>\n\t\t\t\t\t\t\t\t\t\t</span>\n\t\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t\t<div class="dd-option-box">\n\t\t\t\t\t\t\t\t\t\t<div style="padding:5px 10px 5px 10px;" id="select-all-div">\n\t\t\t\t\t\t\t\t\t\t\t<input type="checkbox" value="All" class="dd-select-all">\n\t\t\t\t\t\t\t\t\t\t\t<label for="select-all">All</label>\n\t\t\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t\t\t<div class="dd-options">\n\t\t\t\t\t\t\t\t\t\t\t<ui style="list-style-type: none;">                       \n\t\t\t\t\t\t\t\t\t\t\t</ui>\n\t\t\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t<div id="replayDD" style="display:flex;margin-left:15px;">\t\n\t\t\t\t\t\t\t\t\t<div>\n\t\t\t\t\t\t\t\t\t\t<label for="text" for="replayOptions" class="top-label">Replay Options:</label>\n\t\t\t\t\t\t\t\t\t\t<select type="text" class="replayOptions" id="replayOptions" style="height:36px;" disabled>\n\t\t\t\t\t\t\t\t\t\t\t<option value=""></option>\n\t\t\t\t\t\t\t\t\t\t\t<option value="-1">New Events</option>\n\t\t\t\t\t\t\t\t\t\t\t<option value="-2">Stored Events</option>\n\t\t\t\t\t\t\t\t\t\t\t<option value="0" id="customReplayId">Custom Replay</option>\n\t\t\t\t\t\t\t\t\t\t</select>\n\t\t\t\t\t\t\t\t\t</div>\t\n\t\t\t\t\t\t\t\t\t<div id="replayIdDD" style="margin-left:15px;display:none;">\n\t\t\t\t\t\t\t\t\t\t<label for="text" for="replayId" class="top-label">Replay Id:</label>\n\t\t\t\t\t\t\t\t\t\t<input type="text" class="replayId" id="replayId" style="height:32px;border:1px solid rgb(118, 118, 118);"></input>\t\n\t\t\t\t\t\t\t\t\t</div>\t\t\n\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t<button type="button" style="height:36px; margin:22px 0 0 15px;" id="subscribeBtn" disabled>Subscribe</button>\n\t\t\t\t\t\t\t\t<button type="button" style="height:36px; margin:22px 0 0 15px;" id="viewSubEventsBtn" disabled>Subscribed Events</button>\n\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t<table id="messagesList" class="display" style="width:100%">\n\t\t\t\t\t\t\t\t<thead>\n\t\t\t\t\t\t\t\t\t<tr>\t\n\t\t\t\t\t\t\t\t\t\t<th>Event Name</th>\n\t\t\t\t\t\t\t\t\t\t<th>Replay Id</th>\n\t\t\t\t\t\t\t\t\t\t<th>Created Date</th>\n\t\t\t\t\t\t\t\t\t\t<th>Payload</th>\n\t\t\t\t\t\t\t\t\t\t<th>JSON(Formatted)</th>\t\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t</thead>\n\t\t\t\t\t\t\t</table>\n\t\t\t\t\t\t\t<div>\n\t\t\t\t\t\t\t\t<button type="button" style="width: 75px;" id="export" disabled>Export</button>\n\t\t\t\t\t\t\t\t<button type="button" style="width: 75px;" id="clear" disabled>Clear</button>\n\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t\t<div id="publishTab">\n\t\t\t\t\t\t\t<div style="display:flex;">\t\t\t\t\n\t\t\t\t\t\t\t\t<div id="publishEventTypesDD">\t\n\t\t\t\t\t\t\t\t\t<label for="text" for="publishEventTypes" class="top-label">Types:</label>\n\t\t\t\t\t\t\t\t\t<select type="text" class="eventTypes" id="publishEventTypes" style="height:36px;">\n\t\t\t\t\t\t\t\t\t\t<option value=""></option>\n\t\t\t\t\t\t\t\t\t\t<option value="platformEvents">Platform Events (Custom)</option>\n\t\t\t\t\t\t\t\t\t</select>\t\t\n\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t\t<div id="publishEventsDD" style="margin-left:15px;">\n\t\t\t\t\t\t\t\t\t<label for="text" for="publishEvents" class="top-label">Events:</label>\n\t\t\t\t\t\t\t\t\t<select type="text" class="eventTypes" id="publishEvents" style="height:36px;width:300px;">\n\t\t\t\t\t\t\t\t\t</select>\t\n\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t<div style="text-align:right;" id="publishPayload">\n\t\t\t\t\t\t\t\t<textarea id="payload" style="width:100%;height:150px;margin-top:10px;font-size:14px;" placeholder="Enter payload in JSON format" disabled></textarea>\n\t\t\t\t\t\t\t\t<div style="display:flex">\n\t\t\t\t\t\t\t\t\t<p style="color:red;display:none;" id="payloaderror">*** Invalid JSON payload.</p>\n\t\t\t\t\t\t\t\t\t<button type="button" style="width: 100px;margin-top:10px;margin-left:auto;" id="publishBtn" disabled>Publish</button>\n\t\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t</div>\n\t\t\t\t\t\t\t<table id="publishList" class="display" style="width:100%">\n\t\t\t\t\t\t\t\t<thead>\n\t\t\t\t\t\t\t\t\t<tr>\t\n\t\t\t\t\t\t\t\t\t\t<th>Event Name</th>\n\t\t\t\t\t\t\t\t\t\t<th>Event Id</th>\n\t\t\t\t\t\t\t\t\t\t<th>Payload</th>\t\n\t\t\t\t\t\t\t\t\t\t<th>JSON(Formatted)</th>\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t\t\t</thead>\n\t\t\t\t\t\t\t</table>\n\t\t\t\t\t\t</div>\n\t\t\t\t\t</div>\n\t\t\t\t</div>\n\t\t\t\t<div id="spinner" class="spinner">\n\t\t\t\t\t<div class="cv-spinner">\n\t\t\t\t\t\t<span class="spinner-circle"></span>\n\t\t\t\t\t\t<p style="margin-left: 5px;" class="spinnerlabel">Initializing</p>\n\t\t\t\t\t</div>\n\t\t\t\t</div>\n\t\t\t\t<div id="event-lists-dialog" title="Subscribed Events">\n\t\t\t\t\t<table id="subeventList" class="display" style="width:100%">\n\t\t\t\t\t\t<thead>\n\t\t\t\t\t\t\t<tr>\t\n\t\t\t\t\t\t\t\t<th>Event Name</th>\n\t\t\t\t\t\t\t\t<th>Action</th>\t\t\t\t\t\t\t\t\t\n\t\t\t\t\t\t\t</tr>\n\t\t\t\t\t\t</thead>\n\t\t\t\t\t</table>\t\t\t\t\t\n\t\t\t\t\t<div style="text-align:right;margin-top:10px;">\n\t\t\t\t\t\t<button type="button" style="width:110px;" id="unsubscribeAllBtn" disabled>Unsubscribe All</button>\n\t\t\t\t\t</div>\n\t\t\t\t</div>\n\t\t\t\t<div id="payload-dialog" title="Payload">\n\t\t\t\t\t<textarea id="payloadview" style="width:716px;height:490px;font-size:14px;" readonly></textarea>\n\t\t\t\t</div>\n\t\t\t</body>\n\t\t\t<script src=${e}><\/script>\n\t\t\t<link rel="stylesheet" href=${n}>\n\t\t\t</html>`}function deactivate(){if(tmpDirectory&&fs.existsSync(tmpDirectory))try{fs.rmSync(tmpDirectory,{recursive:!0,force:!0})}catch(t){}}
+"use strict";
+var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    var desc = Object.getOwnPropertyDescriptor(m, k);
+    if (!desc || ("get" in desc ? !m.__esModule : desc.writable || desc.configurable)) {
+      desc = { enumerable: true, get: function() { return m[k]; } };
+    }
+    Object.defineProperty(o, k2, desc);
+}) : (function(o, m, k, k2) {
+    if (k2 === undefined) k2 = k;
+    o[k2] = m[k];
+}));
+var __setModuleDefault = (this && this.__setModuleDefault) || (Object.create ? (function(o, v) {
+    Object.defineProperty(o, "default", { enumerable: true, value: v });
+}) : function(o, v) {
+    o["default"] = v;
+});
+var __importStar = (this && this.__importStar) || (function () {
+    var ownKeys = function(o) {
+        ownKeys = Object.getOwnPropertyNames || function (o) {
+            var ar = [];
+            for (var k in o) if (Object.prototype.hasOwnProperty.call(o, k)) ar[ar.length] = k;
+            return ar;
+        };
+        return ownKeys(o);
+    };
+    return function (mod) {
+        if (mod && mod.__esModule) return mod;
+        var result = {};
+        if (mod != null) for (var k = ownKeys(mod), i = 0; i < k.length; i++) if (k[i] !== "default") __createBinding(result, mod, k[i]);
+        __setModuleDefault(result, mod);
+        return result;
+    };
+})();
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.activate = activate;
+exports.deactivate = deactivate;
+const vscode = __importStar(require("vscode"));
+const path = require('path');
+const axios = require('axios');
+const xml2js = require('xml2js');
+const { exec } = require('child_process');
+const fs = require('fs');
+const events_json_1 = __importDefault(require("./assets/events.json"));
+const faye = require('faye');
+let tmpDirectory = '';
+let EVENTS_SET = events_json_1.default;
+function activate(context) {
+    const disposable = vscode.commands.registerCommand('salesforce-events-monitor.build', () => {
+        const panel = vscode.window.createWebviewPanel('packageBuilder', 'Salesforce Events Monitor', vscode.ViewColumn.One, { enableScripts: true, retainContextWhenHidden: true });
+        const scriptPath = vscode.Uri.file(path.join(context.extensionPath, 'out', 'assets/index.js'));
+        const scriptUri = panel.webview.asWebviewUri(scriptPath);
+        const cssPath = vscode.Uri.file(path.join(context.extensionPath, 'out', 'assets/index.css'));
+        const cssUri = panel.webview.asWebviewUri(cssPath);
+        panel.webview.html = getWebviewContent(context.extensionPath, scriptUri, cssUri);
+        let orgsList = [];
+        let subscribeList = new Map();
+        let eventsList = new Map();
+        tmpDirectory = context.globalStorageUri.fsPath + "/tmp";
+        panel.webview.onDidReceiveMessage((message) => {
+            switch (message.command) {
+                case 'getAuthOrgs':
+                    var orgsListPath = path.join(context.globalStorageUri.fsPath, 'orgsList.json');
+                    if (fs.existsSync(orgsListPath) && !message.refresh) {
+                        orgsList = JSON.parse(fs.readFileSync(orgsListPath, 'utf-8'));
+                        panel.webview.postMessage({ command: 'orgsList', orgs: orgsList });
+                    }
+                    else {
+                        getAuthOrgs().then((result) => {
+                            orgsList = result;
+                            panel.webview.postMessage({ command: 'orgsList', orgs: result });
+                            const dir = path.dirname(orgsListPath);
+                            if (!fs.existsSync(dir)) {
+                                fs.mkdirSync(dir, { recursive: true });
+                            }
+                            fs.writeFile(orgsListPath, JSON.stringify(orgsList, null, 2), 'utf8', (err) => {
+                            });
+                        });
+                    }
+                    break;
+                case 'getEvents':
+                    var org = orgsList.find((org) => org.orgId === message.orgId);
+                    if (eventsList.has(org.orgId + message.type)) {
+                        panel.webview.postMessage({ command: 'events', source: message.source, components: eventsList.get(org.orgId + message.type) });
+                    }
+                    else {
+                        validateSession(org.accessToken, org.instanceUrl, message.orgId)
+                            .then((result) => {
+                            if (result.valid) {
+                                if (result.orgsList) {
+                                    orgsList = result.orgsList;
+                                    org = orgsList.find((org) => org.orgId === message.orgId);
+                                    fs.writeFile(context.globalStorageUri.fsPath + "/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err) => { });
+                                }
+                                getEvents(org.accessToken, org.instanceUrl, message.type)
+                                    .then((data) => {
+                                    panel.webview.postMessage({ command: 'events', source: message.source, components: data });
+                                });
+                            }
+                        }).catch((error) => {
+                            panel.webview.postMessage({ command: 'error', message: 'Unable to connect to the Org.' });
+                        });
+                    }
+                    break;
+                case 'subscribe':
+                    var org = orgsList.find((org) => org.orgId === message.orgId);
+                    const client = new faye.Client(`${org.instanceUrl}/cometd/65.0/`);
+                    client.setHeader('Authorization', `Bearer ${org.accessToken}`);
+                    let channelReplays = { "replay": {} };
+                    message.events.split(',').forEach((channel) => {
+                        channelReplays.replay[channel] = parseInt(message.replayId);
+                    });
+                    client.addExtension({
+                        outgoing: (msg, callback) => {
+                            msg.ext = channelReplays;
+                            callback(msg);
+                        }
+                    });
+                    message.events.split(',').forEach((channel) => {
+                        const subscribe = client.subscribe(channel, (msg) => {
+                            panel.webview.postMessage({ command: 'message', message: msg, name: channel });
+                        });
+                        subscribe.callback((msg) => {
+                            panel.webview.postMessage({ command: 'subscribed', name: channel });
+                            vscode.window.showInformationMessage(`Successfully Subscribed to ${channel}`);
+                            subscribeList.set(channel, subscribe);
+                        });
+                        subscribe.errback((err) => {
+                            vscode.window.showErrorMessage(`Failed to Subscribed to ${channel} Error: ${err}`);
+                        });
+                    });
+                    break;
+                case 'unsubscribe':
+                    var subscription = subscribeList.get(message.event);
+                    subscription.cancel();
+                    subscribeList.delete(message.event);
+                    vscode.window.showInformationMessage(`Successfully Unsubscribed to ${message.event}`);
+                    break;
+                case 'publish':
+                    var org = orgsList.find((org) => org.orgId === message.orgId);
+                    axios.post(org.instanceUrl + "/services/data/v65.0/sobjects/" + message.type, message.payload, {
+                        headers: {
+                            'Content-Type': 'application/json; charset=utf-8',
+                            'Authorization': `Bearer ${org.accessToken}`
+                        },
+                    }).then((response) => {
+                        vscode.window.showInformationMessage(`Event published successfully. Event ID: ${response.data.id}`);
+                        panel.webview.postMessage({ command: 'publishedmessage',
+                            payload: message.payload, name: message.type, eventId: response.data.id });
+                    })
+                        .catch((error) => {
+                        console.log(error);
+                    });
+                    break;
+                case 'toastMessage':
+                    vscode.window.showInformationMessage(`${message.message}`);
+                    break;
+                case 'unsubscribeAll':
+                    for (const [key, value] of subscribeList) {
+                        value.cancel();
+                    }
+                    subscribeList.clear();
+                    break;
+                default:
+                    console.log('Unknown command:', message.command);
+            }
+        });
+        panel.onDidDispose(() => {
+            if (tmpDirectory && fs.existsSync(tmpDirectory)) {
+                try {
+                    fs.rmSync(tmpDirectory, { recursive: true, force: true });
+                }
+                catch (err) {
+                }
+            }
+        });
+    });
+    context.subscriptions.push(disposable);
+}
+function getEvents(accessToken, endPoint, type) {
+    return new Promise((resolve, reject) => {
+        let query = "";
+        let prefix = "";
+        if (type === 'platformEvents') {
+            query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE KeyPrefix LIKE \'e%\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+            prefix = '/event/';
+        }
+        else if (type === 'standardplatformEvents') {
+            query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%Event\' and (Not QualifiedApiName like \'%ChangeEvent\') ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+            prefix = '/event/';
+        }
+        else if (type === 'cdcEvents') {
+            query = '<urn:queryAll><urn:queryString>SELECT Label, QualifiedApiName FROM EntityDefinition WHERE QualifiedApiName like \'%ChangeEvent\' ORDER BY Label ASC</urn:queryString></urn:queryAll>';
+            prefix = '/data/';
+        }
+        else if (type === 'pushTopics') {
+            query = '<urn:queryAll><urn:queryString>SELECT Name FROM PushTopic ORDER BY Name ASC</urn:queryString></urn:queryAll>';
+            prefix = '/topic/';
+        }
+        else if (type === 'monitoringEvents') {
+            prefix = '/event/';
+            let pfs = [];
+            EVENTS_SET.monitoringEvents.forEach((evt) => {
+                pfs.push({ name: evt, hidden: false, label: evt, url: prefix + evt });
+            });
+            resolve(pfs);
+        }
+        if (type !== 'monitoringEvents') {
+            sendSoapAPIRequest(accessToken, endPoint, query)
+                .then((result) => {
+                const records = result['queryAllResponse']['result']['records'];
+                let pfs = [];
+                if (records) {
+                    let tmp = records instanceof Array ? records : [records];
+                    tmp.forEach((evt) => {
+                        if (evt['sf:type'] === 'PushTopic') {
+                            pfs.push({ name: evt['sf:Name'], hidden: false, label: evt['sf:Name'], url: prefix + evt['sf:Name'] });
+                        }
+                        else if (type === 'standardplatformEvents') {
+                            if (EVENTS_SET.standardPlatformEvents.indexOf(evt['sf:QualifiedApiName']) >= 0) {
+                                pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix + evt['sf:QualifiedApiName'] });
+                            }
+                        }
+                        else {
+                            pfs.push({ name: evt['sf:QualifiedApiName'], hidden: false, label: evt['sf:Label'], url: prefix + evt['sf:QualifiedApiName'] });
+                        }
+                    });
+                }
+                resolve(pfs);
+            })
+                .catch((error) => {
+                reject(error);
+            });
+        }
+    });
+}
+function validateSession(accessToken, endPoint, orgId) {
+    return new Promise((resolve, reject) => {
+        sendSoapAPIRequest(accessToken, endPoint, '<urn:getUserInfo/>')
+            .then((result) => {
+            resolve({ valid: true });
+        }).catch((error) => {
+            if (error.indexOf('INVALID_SESSION_ID') >= 0) {
+                let attempts = 0;
+                function retry() {
+                    attempts++;
+                    getAuthOrgs().then((orgsList) => {
+                        let org = orgsList.find((org) => org.orgId === orgId);
+                        return sendSoapAPIRequest(org.accessToken, org.instanceUrl, '<urn:getUserInfo/>')
+                            .then((res) => {
+                            resolve({ valid: true, orgsList });
+                        })
+                            .catch((err) => {
+                            if (attempts < 5) {
+                                retry();
+                            }
+                            else {
+                                reject(new Error('Max retries reached. Session validation failed.'));
+                            }
+                        });
+                    });
+                }
+                retry();
+            }
+        });
+        ;
+    });
+}
+function sendSoapAPIRequest(accessToken, endPoint, body) {
+    const parser = new xml2js.Parser({ explicitArray: false, ignoreAttrs: true });
+    let request = '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">' +
+        '<soapenv:Header><urn:SessionHeader><urn:sessionId>' + accessToken + '</urn:sessionId></urn:SessionHeader></soapenv:Header>' +
+        '<soapenv:Body>' + body + '</soapenv:Body></soapenv:Envelope>';
+    return new Promise((resolve, reject) => {
+        axios.post(endPoint + "/services/Soap/u/65.0", request, { headers: {
+                'Content-Type': 'text/xml; charset=utf-8',
+                'SOAPAction': 'Update',
+            },
+        }).then((response) => {
+            parser.parseString(response.data, (err, result) => {
+                if (err) {
+                    vscode.window.showErrorMessage("Error parsing SOAP XML:", err);
+                    return;
+                }
+                resolve(result['soapenv:Envelope']['soapenv:Body']);
+            });
+        })
+            .catch((error) => {
+            parser.parseString(error.response.data, (err, result) => {
+                reject(result['soapenv:Envelope']['soapenv:Body']['soapenv:Fault']['faultstring']);
+            });
+        });
+    });
+}
+function getAuthOrgs() {
+    return new Promise((resolve, reject) => {
+        exec('sf org list --json', (error, stdout, stderr) => {
+            if (error) {
+                reject(`Error: ${error}`);
+            }
+            else {
+                try {
+                    const data = JSON.parse(stdout).result;
+                    const orgList = [];
+                    const orgs = [];
+                    const orgIds = [];
+                    orgs.push(...data.other, ...data.sandboxes, ...data.nonScratchOrgs, ...data.devHubs, ...data.scratchOrgs);
+                    orgs.forEach((org) => {
+                        if ((org.connectedStatus === 'Connected' || org.status === 'Active') && orgIds.indexOf(org['orgId']) < 0) {
+                            orgList.push({
+                                name: org['alias'] + '(' + org['username'] + ')',
+                                alias: org['alias'],
+                                orgId: org['orgId'],
+                                accessToken: org['accessToken'],
+                                instanceUrl: org['instanceUrl']
+                            });
+                            orgIds.push(org['orgId']);
+                        }
+                    });
+                    resolve(orgList);
+                }
+                catch (parseError) {
+                    reject(`Parse Error: ${parseError.message}`);
+                }
+            }
+        });
+    });
+}
+function getWebviewContent(basedpath, scriptUri, cssUri) {
+    return `<!doctype html>
+			<html lang="en">
+			<head>
+				<meta charset="UTF-8" />
+				<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+				<title>Salesforce Events Monitor</title>
+				<script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+				<script src="https://code.jquery.com/ui/1.14.1/jquery-ui.min.js"></script>
+				<script src="https://cdn.datatables.net/2.1.8/js/dataTables.min.js"></script>				
+				<link rel="stylesheet" href="https://cdn.datatables.net/2.1.8/css/dataTables.dataTables.min.css">
+				<script src="https://cdn.datatables.net/select/2.1.0/js/dataTables.select.min.js"></script>				
+				<link rel="stylesheet" href="https://cdn.datatables.net/select/2.1.0/css/select.dataTables.min.css">
+				<link rel="stylesheet" href="https://code.jquery.com/ui/1.14.1/themes/base/jquery-ui.css">
+			</head>
+			<body>	
+				<div style="margin: 20px;">
+					<div style="display:flex;justify-content: space-between;align-items: center;">	
+						<h1>Salesforce Events Monitor</h1>		
+						<a href="https://github.com/rjallu9/salesforce-event-monitor/issues" title="Report issue" style="height"25px;">
+							<svg width="25px" height="25px" viewBox="0 0 36 36" version="1.1"  preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+								<circle cx="18" cy="18" r="14" fill="#0078d4"/>
+								<text x="18" y="20" font-family="Arial" font-size="20" text-anchor="middle" alignment-baseline="middle" fill="white">?</text>
+							</svg>
+						</a>		
+					</div>
+					<div style="display:flex;">			
+						<div id="org" style="margin-right:5px;display:none;">	
+							<label for="text" for="org-field" class="top-label">Org:</label>
+							<select type="text" class="org-field" id="org-field" style="height:36px;">
+							</select>		
+						</div>
+						<div>
+							<p id="org-refresh" style="margin-bottom:0;margin-top:25px;margin-right:5px;cursor:pointer;display:none;" title="Refresh Orgs">
+								<svg width="25" height="25" viewBox="0 0 1024 1024" xmlns="http://www.w3.org/2000/svg">
+									<circle cx="512" cy="512" r="512" fill="#0078d4"></circle>
+									<path d="M512 281.6c71.221 0 136.396 32.619 179.2 85.526V256h51.2v204.8H537.6v-51.2h121.511c-32.857-47.165-87.235-76.8-147.111-76.8-98.97 0-179.2 80.23-179.2 179.2 0 98.97 80.23 179.2 179.2 179.2v-.02c73.665 0 138.994-44.857 166.176-111.988l47.458 19.216C690.689 684.711 606.7 742.38 512 742.38v.02c-127.246 0-230.4-103.154-230.4-230.4 0-127.246 103.154-230.4 230.4-230.4z" fill="white" fill-rule="nonzero"></path>
+								</svg>
+							</p>
+						</div>
+					</div>
+					<div id="tabs" style="margin-top:10px;">
+						<ul>
+							<li class="tab" name="messagesList"><a href="#messagesTab">Subscribe</a></li>
+							<li class="tab" name="publishList"><a href="#publishTab">Publish</a></li>
+						</ul>
+						<div id="messagesTab">		
+							<div style="display:flex;">				
+								<div id="eventTypesDD">	
+									<label for="text" for="eventTypes" class="top-label">Types:</label>
+									<select type="text" class="eventTypes" id="eventTypes" style="height:36px;">
+										<option value=""></option>
+										<option value="platformEvents">Platform Events (Custom)</option>
+										<option value="standardplatformEvents">Platform Events (Standard)</option>
+										<option value="cdcEvents">Change Data Captures</option>
+										<option value="pushTopics">Push Topics</option>
+										<option value="monitoringEvents">Monitoring Events</option>
+										<option value="custom">Custom Channel</option>
+									</select>		
+								</div>								
+								<div id="customChannelDD" style="margin-left:15px;display:none;">
+									<label for="text" for="customChannelUrl" class="top-label">Subscription Channel:</label>
+									<input type="text" class="customChannelUrl" id="customChannelUrl" style="height:32px;width:300px;border:1px solid rgb(118, 118, 118);"></input>	
+								</div>	
+								<div id="eventsDD" style="margin-left:15px;">
+									<div>	
+										<label for="text" for="dd-text-field" class="top-label">Events: </label>
+										<input type="text" class="dd-text-field" id="dd-text-field"></input>								
+										<span style="margin-left: -19px;color: #888;">
+											<svg width="15" height="15" viewBox="0 0 24 12" fill="#cccccc;" xmlns="http://www.w3.org/2000/svg" style="color: #cccccc;">
+												<path d="M6 9l6 6 6-6" stroke="#cccccc" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"></path>
+											</svg>
+										</span>
+									</div>
+									<div class="dd-option-box">
+										<div style="padding:5px 10px 5px 10px;" id="select-all-div">
+											<input type="checkbox" value="All" class="dd-select-all">
+											<label for="select-all">All</label>
+										</div>
+										<div class="dd-options">
+											<ui style="list-style-type: none;">                       
+											</ui>
+										</div>
+									</div>
+								</div>
+								<div id="replayDD" style="display:flex;margin-left:15px;">	
+									<div>
+										<label for="text" for="replayOptions" class="top-label">Replay Options:</label>
+										<select type="text" class="replayOptions" id="replayOptions" style="height:36px;" disabled>
+											<option value=""></option>
+											<option value="-1">New Events</option>
+											<option value="-2">Stored Events</option>
+											<option value="0" id="customReplayId">Custom Replay</option>
+										</select>
+									</div>	
+									<div id="replayIdDD" style="margin-left:15px;display:none;">
+										<label for="text" for="replayId" class="top-label">Replay Id:</label>
+										<input type="text" class="replayId" id="replayId" style="height:32px;border:1px solid rgb(118, 118, 118);"></input>	
+									</div>		
+								</div>
+								<button type="button" style="height:36px; margin:22px 0 0 15px;" id="subscribeBtn" disabled>Subscribe</button>
+								<button type="button" style="height:36px; margin:22px 0 0 15px;" id="viewSubEventsBtn" disabled>Subscribed Events</button>
+							</div>
+							<table id="messagesList" class="display" style="width:100%">
+								<thead>
+									<tr>	
+										<th>Event Name</th>
+										<th>Replay Id</th>
+										<th>Created Date</th>
+										<th>Payload</th>
+										<th>JSON(Formatted)</th>										
+									</tr>
+								</thead>
+							</table>
+							<div>
+								<button type="button" style="width: 75px;" id="export" disabled>Export</button>
+								<button type="button" style="width: 75px;" id="clear" disabled>Clear</button>
+							</div>
+						</div>
+						<div id="publishTab">
+							<div style="display:flex;">				
+								<div id="publishEventTypesDD">	
+									<label for="text" for="publishEventTypes" class="top-label">Types:</label>
+									<select type="text" class="eventTypes" id="publishEventTypes" style="height:36px;">
+										<option value=""></option>
+										<option value="platformEvents">Platform Events (Custom)</option>
+									</select>		
+								</div>
+								<div id="publishEventsDD" style="margin-left:15px;">
+									<label for="text" for="publishEvents" class="top-label">Events:</label>
+									<select type="text" class="eventTypes" id="publishEvents" style="height:36px;width:300px;">
+									</select>	
+								</div>
+							</div>
+							<div style="text-align:right;" id="publishPayload">
+								<textarea id="payload" style="width:100%;height:150px;margin-top:10px;font-size:14px;" placeholder="Enter payload in JSON format" disabled></textarea>
+								<div style="display:flex">
+									<p style="color:red;display:none;" id="payloaderror">*** Invalid JSON payload.</p>
+									<button type="button" style="width: 100px;margin-top:10px;margin-left:auto;" id="publishBtn" disabled>Publish</button>
+								</div>
+							</div>
+							<table id="publishList" class="display" style="width:100%">
+								<thead>
+									<tr>	
+										<th>Event Name</th>
+										<th>Event Id</th>
+										<th>Payload</th>	
+										<th>JSON(Formatted)</th>								
+									</tr>
+								</thead>
+							</table>
+						</div>
+					</div>
+				</div>
+				<div id="spinner" class="spinner">
+					<div class="cv-spinner">
+						<span class="spinner-circle"></span>
+						<p style="margin-left: 5px;" class="spinnerlabel">Initializing</p>
+					</div>
+				</div>
+				<div id="event-lists-dialog" title="Subscribed Events">
+					<table id="subeventList" class="display" style="width:100%">
+						<thead>
+							<tr>	
+								<th>Event Name</th>
+								<th>Action</th>									
+							</tr>
+						</thead>
+					</table>					
+					<div style="text-align:right;margin-top:10px;">
+						<button type="button" style="width:110px;" id="unsubscribeAllBtn" disabled>Unsubscribe All</button>
+					</div>
+				</div>
+				<div id="payload-dialog" title="Payload">
+					<textarea id="payloadview" style="width:716px;height:490px;font-size:14px;" readonly></textarea>
+				</div>
+			</body>
+			<script src=${scriptUri}></script>
+			<link rel="stylesheet" href=${cssUri}>
+			</html>`;
+}
+function deactivate() {
+    if (tmpDirectory && fs.existsSync(tmpDirectory)) {
+        try {
+            fs.rmSync(tmpDirectory, { recursive: true, force: true });
+        }
+        catch (err) {
+        }
+    }
+}
+//# sourceMappingURL=extension.js.map
