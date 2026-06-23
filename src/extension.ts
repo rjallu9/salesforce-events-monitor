@@ -9,6 +9,12 @@ const faye = require('faye');
 
 let tmpDirectory = '';
 let EVENTS_SET = eventsSet;
+let orgsList: any[] = [];
+var orgsListPath = '';
+var fsPath = '';
+var vsContext: vscode.ExtensionContext;
+let globalStorageUri = '';
+
 export function activate(context: vscode.ExtensionContext) {
 	const disposable = vscode.commands.registerCommand('salesforce-events-monitor.build', () => {
 			const panel = vscode.window.createWebviewPanel(
@@ -28,29 +34,43 @@ export function activate(context: vscode.ExtensionContext) {
 
 			panel.webview.html = getWebviewContent(context.extensionPath, scriptUri, cssUri);
 
-			let orgsList: any[] = [];
 			let subscribeList = new Map();
 			let eventsList = new Map();
 
+			vsContext = context;
 			tmpDirectory = context.globalStorageUri.fsPath+"/tmp";
+			fsPath = context.globalStorageUri.fsPath;
+			orgsListPath = path.join(context.globalStorageUri.fsPath, 'orgsListV3.json');
 
 			panel.webview.onDidReceiveMessage((message) => {
 				switch (message.command) {
-					case 'getAuthOrgs':			
-						var orgsListPath = path.join(context.globalStorageUri.fsPath, 'orgsList.json');
-						if (fs.existsSync(orgsListPath) && !message.refresh) {
+					case 'getAuthOrgs':	
+						if (fs.existsSync(orgsListPath)) {
 							orgsList = JSON.parse(fs.readFileSync(orgsListPath, 'utf-8'));
-							panel.webview.postMessage({ command: 'orgsList', orgs: orgsList});
-						} else {
+							Promise.all(
+								orgsList.map(org =>
+									Promise.all([
+										vsContext.secrets.get(`sf-access-token-${org.orgId}`),
+										vsContext.secrets.get(`sf-refresh-token-${org.orgId}`)
+									]).then(([accessToken, refreshToken]) => ({
+										...org,
+										accessToken,
+										refreshToken
+									}))
+								)
+							).then((orgsWithTokens) => {
+								orgsList = orgsWithTokens;
+								if(!message.refresh) {
+									panel.webview.postMessage({ command: 'orgsList', orgs: orgsList});
+								}
+							});								
+						} 
+						
+						if(message.refresh || !fs.existsSync(orgsListPath)) {
 							getAuthOrgs().then((result:any) => {
-								orgsList = result;	
-								panel.webview.postMessage({command: 'orgsList', orgs: result});	
-								const dir = path.dirname(orgsListPath);
-								if (!fs.existsSync(dir)) {
-									fs.mkdirSync(dir, { recursive: true });
-								}	
-								fs.writeFile(orgsListPath, JSON.stringify(orgsList, null, 2), 'utf8', (err:any) => {
-								}); 			
+								panel.webview.postMessage({command: 'orgsList', orgs: orgsList});		
+							}).catch((error) => {
+								panel.webview.postMessage({ command: 'error', message:`Unable to load authorized orgs. ${error}`});
 							});	
 						}				
 						break;
@@ -59,16 +79,11 @@ export function activate(context: vscode.ExtensionContext) {
 						if(eventsList.has(org.orgId+message.type)) {
 							panel.webview.postMessage({ command: 'events', source:message.source, components: eventsList.get(org.orgId+message.type)});
 						} else {
-							validateSession(org.accessToken, org.instanceUrl, message.orgId)
+							validateSession(message.orgId)
 							.then((result:
 								any) => {
 								if(result.valid) {
-									if(result.orgsList) {
-										orgsList = result.orgsList;
-										org = orgsList.find((org:any) => org.orgId === message.orgId);	
-										fs.writeFile(context.globalStorageUri.fsPath+"/orgsList.json", JSON.stringify(orgsList, null, 2), 'utf8', (err:any) => {}); 
-									}
-									getEvents(org.accessToken, org.instanceUrl, message.type)
+									getEvents(message.orgId, message.type)
 										.then((data:any) => {
 											panel.webview.postMessage({ command: 'events', source:message.source, components: data});						
 									});	
@@ -80,7 +95,7 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'subscribe':			
 						var org = orgsList.find((org:any) => org.orgId === message.orgId);
-						const client = new faye.Client(`${org.instanceUrl}/cometd/65.0/`);
+						const client = new faye.Client(`${org.instanceUrl}/cometd/${org.apiVersion}/`);
 						client.setHeader('Authorization', `Bearer ${org.accessToken}`);
 						let channelReplays = {"replay": {}};
 						message.events.split(',').forEach((channel:any) => {
@@ -114,7 +129,7 @@ export function activate(context: vscode.ExtensionContext) {
 						break;
 					case 'publish':			
 						var org = orgsList.find((org:any) => org.orgId === message.orgId);
-						axios.post(org.instanceUrl+"/services/data/v65.0/sobjects/"+message.type, message.payload, 
+						axios.post(org.instanceUrl+`/services/data/v${org.apiVersion}/sobjects/`+message.type, message.payload, 
 							{   
 								headers: {
 									'Content-Type': 'application/json; charset=utf-8',
@@ -123,11 +138,10 @@ export function activate(context: vscode.ExtensionContext) {
 							}
 						).then((response:any) => {
 							vscode.window.showInformationMessage(`Event published successfully. Event ID: ${response.data.id}`);
-									panel.webview.postMessage({ command: 'publishedmessage', 
-										payload: message.payload, name:message.type, eventId: response.data.id});	
+							panel.webview.postMessage({ command: 'publishedmessage', payload: message.payload, name:message.type, eventId: response.data.id});	
 						})
 						.catch((error:any) => {
-							console.log(error);	
+							vscode.window.showErrorMessage(`Failed to publish event. Error: ${error.code} : ${error.response?.data[0]?.message }`);
 						});
 						break;
 					case 'toastMessage':
@@ -158,7 +172,7 @@ export function activate(context: vscode.ExtensionContext) {
 	context.subscriptions.push(disposable);
 }
 
-function getEvents(accessToken:string, endPoint:string, type:string) {
+function getEvents(orgId:string, type:string) {
     return new Promise((resolve, reject) => {
 		let query = "";
 		let prefix = "";
@@ -184,7 +198,7 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
 		}
 
 		if(type !== 'monitoringEvents') {
-			sendSoapAPIRequest(accessToken, endPoint, query)
+			sendSoapAPIRequest(orgId, query)
 			.then((result:any) => {
 				const records = result['queryAllResponse']['result']['records'];	
 				let pfs:any = [];				
@@ -211,46 +225,43 @@ function getEvents(accessToken:string, endPoint:string, type:string) {
     });
 }
 
-function validateSession(accessToken:string, endPoint:string, orgId:string) {
+function validateSession(orgId:string) {
+	var org = orgsList.find((org:any) => org.orgId === orgId);	
 	return new Promise((resolve, reject) => {
-		sendSoapAPIRequest(accessToken, endPoint, '<urn:getUserInfo/>')
+		sendSoapAPIRequest(orgId, '<urn:getUserInfo/>')
 		.then((result:any) => {
 			resolve({valid: true});
 		}).catch((error:any) => {
-			if(error.indexOf('INVALID_SESSION_ID') >= 0) {
-				let attempts = 0;
-				function retry() {
-					attempts++;
-					getAuthOrgs().then((orgsList:any) => {
-						let org = orgsList.find((org:any) => org.orgId === orgId);
-						return sendSoapAPIRequest(org.accessToken, org.instanceUrl, '<urn:getUserInfo/>')
-							.then((res) => {
-								resolve({ valid: true, orgsList });
-							})
-							.catch((err) => {
-								if (attempts < 5) {
-									retry();
-								} else {
-									reject(new Error('Max retries reached. Session validation failed.'));
-								}
-							}
-						);
-					});					  
+			axios({method: 'POST', url: org.instanceUrl+'/services/oauth2/token?client_id=PlatformCLI&grant_type=refresh_token&refresh_token='+org.refreshToken, data: {}, 
+					headers: {
+						'Content-Type': 'application/x-www-form-urlencoded'
+					}
 				}
-				retry();
-			}
+			).then((response:any) => {
+				org.accessToken = response.data.access_token;
+				return vsContext.secrets.store( `sf-access-token-${org.orgId}`, org.accessToken).then(() => {
+					sendSoapAPIRequest(orgId, '<urn:getUserInfo/>')
+					.then((result:any) => {
+						resolve({valid: true});
+					});
+				});
+			})
+			.catch((error:any) => {
+				reject(error);
+			});
         });;
     });
 }
 
-function sendSoapAPIRequest(accessToken:string,  endPoint:string, body:string) {
+function sendSoapAPIRequest(orgId:string, body:string) {
+	var org = orgsList.find((org:any) => org.orgId === orgId);	
 	const parser = new xml2js.Parser({ explicitArray: false, ignoreAttrs: true });	
 	let request =  '<soapenv:Envelope xmlns:soapenv="http://schemas.xmlsoap.org/soap/envelope/" xmlns:urn="urn:partner.soap.sforce.com">'+
-		'<soapenv:Header><urn:SessionHeader><urn:sessionId>'+accessToken+'</urn:sessionId></urn:SessionHeader></soapenv:Header>'+
+		'<soapenv:Header><urn:SessionHeader><urn:sessionId>'+org.accessToken+'</urn:sessionId></urn:SessionHeader></soapenv:Header>'+
 		'<soapenv:Body>'+body+'</soapenv:Body></soapenv:Envelope>';
 	
 	return new Promise((resolve, reject) => {
-		axios.post(endPoint+"/services/Soap/u/65.0", request, { headers: {
+		axios.post(org.instanceUrl+"/services/Soap/u/"+org.apiVersion, request, { headers: {
 					'Content-Type': 'text/xml; charset=utf-8',
 					'SOAPAction': 'Update',
 				},
@@ -279,24 +290,80 @@ function getAuthOrgs() {
                 reject(`Error: ${error}`);
             } else {
                 try {
-                    const data = JSON.parse(stdout).result;					
-					const orgList:Object[] = [];
+                    const data = JSON.parse(stdout).result;	
 					const orgs = [];
 					const orgIds:string[] = [];
-					orgs.push(...data.other, ...data.sandboxes, ...data.nonScratchOrgs, ...data.devHubs, ...data.scratchOrgs);
-					orgs.forEach((org:any) => {
-						if((org.connectedStatus === 'Connected' || org.status === 'Active') && orgIds.indexOf(org['orgId']) < 0) {
-							orgList.push({
-								name: org['alias']+'('+org['username']+')',
-								alias: org['alias'],
-								orgId: org['orgId'],
-								accessToken: org['accessToken'],
-								instanceUrl: org['instanceUrl']
-							});
-							orgIds.push(org['orgId']);
-						}						
+					orgs.push(...(data.other || []), ...(data.sandboxes || []), ...(data.nonScratchOrgs || []), ...(data.devHubs || []), ...(data.scratchOrgs || []));
+					const newOrgs = orgs.filter((org: any) => {
+						const isConnected = org.connectedStatus === 'Connected' || org.status === 'Active';
+						const isNew = !orgsList.find((o: any) => o.orgId === org.orgId);
+						const isUnique = !orgIds.includes(org.orgId);
+						if (isConnected && isNew && isUnique) {
+							orgIds.push(org.orgId);
+							return true;
+						}
+						return false;
 					});
-                    resolve(orgList);
+					if (newOrgs.length === 0) {
+						resolve(orgsList); // nothing new to fetch
+						return;
+					}
+
+					// Run all org display calls in parallel
+					const displayPromises = newOrgs.map((org: any) => {
+						return new Promise<void>((res) => {
+							exec(`sf org display --target-org ${org.username} --verbose --json`, (err: any, out: any) => {
+									if (err) {
+										res(); // don't reject — skip this org
+										return;
+									}
+									try {
+										const display = JSON.parse(out).result;
+										const sfdxAuthUrl = display.sfdxAuthUrl || '';
+										const refreshToken = sfdxAuthUrl.substring(sfdxAuthUrl.indexOf('::') + 2, sfdxAuthUrl.lastIndexOf('@'));
+										if (refreshToken) {
+											orgsList.push({
+												name: `${org.alias}(${org.username})`,
+												alias: org.alias,
+												orgId: org.orgId,
+												instanceUrl: display.instanceUrl,
+												apiVersion: display.apiVersion,
+												refreshToken,
+												accessToken:display.accessToken
+											});
+										}
+									} catch (e) {
+									}
+									res();
+								}
+							);
+						});
+					});
+					// Wait for ALL display calls to finish, then resolve
+					Promise.all(displayPromises).then(() => {							
+						const dir = path.dirname(orgsListPath);
+						if (!fs.existsSync(dir)) {
+							fs.mkdirSync(dir, { recursive: true });
+						}
+						Promise.all(
+							orgsList.flatMap(org =>
+								[
+									vsContext.secrets.store( `sf-access-token-${org.orgId}`, org.accessToken),
+									vsContext.secrets.store( `sf-refresh-token-${org.orgId}`, org.refreshToken)
+								]
+							)
+						).then(() => {
+							const sanitizedOrgs = orgsList.map(org => ({
+								name: org.name,
+								alias: org.alias,
+								orgId: org.orgId,
+								instanceUrl: org.instanceUrl,
+								apiVersion: org.apiVersion,
+							}));
+							fs.writeFile(orgsListPath, JSON.stringify(sanitizedOrgs, null, 2), 'utf8', (err:any) => {}); 	
+							resolve(orgsList);
+						});	
+					});
                 } catch (parseError:any) {
                     reject(`Parse Error: ${parseError.message}`);
                 }
@@ -495,5 +562,16 @@ export function deactivate() {
         } catch (err) {
         }
     }
+
+	try {
+		fs.readdir(fsPath, (err:any, files:any[]) => {
+			files.filter(file => file.endsWith('.json') && file !== 'orgsListV3.json')
+				.forEach(file => {
+					const filePath = path.join(fsPath, file);
+					fs.rmSync(filePath);
+				});
+		});
+	} catch (err) {
+	}
 }
 
